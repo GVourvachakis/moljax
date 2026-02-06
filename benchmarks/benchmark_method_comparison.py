@@ -10,28 +10,42 @@ This addresses reviewer concerns about:
 2. FFT-CN comparison needs fair FD baseline with SAME BCs (not different problems)
 """
 
+# CRITICAL: Set x64 BEFORE any jax.numpy imports
+import jax
+jax.config.update("jax_enable_x64", True)
+
+# Now safe to import other modules
 import numpy as np
 import json
 import time
 from pathlib import Path
 import matplotlib.pyplot as plt
-
-# JAX setup
-import jax
-jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 from jax import jit
 from functools import partial
 
+# Import benchmark utilities
+from benchmark_utils import (
+    setup_benchmark, check_finite_tree, compute_stats,
+    add_benchmark_args, DEFAULT_N_REPS
+)
+
+# Parse CLI arguments
+parser = add_benchmark_args()
+args = parser.parse_args()
+N_REPS = args.n_reps
+EXPECTED_BACKEND = args.backend if args.backend != 'any' else None
+
 print("=" * 70)
 print("Method Comparison Benchmarks")
 print("=" * 70)
-print(f"JAX devices: {jax.devices()}")
+device_str = setup_benchmark(expected_backend=EXPECTED_BACKEND)
+print(f"N_REPS: {N_REPS}")
 print()
 
-# Output directories (local to benchmarks/)
+# Output directories
 RESULTS_DIR = Path(__file__).parent / "results"
-FIGURES_DIR = Path(__file__).parent / "figures"
+FIGURES_DIR = Path(__file__).parent.parent / "figures"
 RESULTS_DIR.mkdir(exist_ok=True)
 FIGURES_DIR.mkdir(exist_ok=True)
 
@@ -188,8 +202,19 @@ def run_reactor_imex(c0, L_diff, L_adv_rxn, dt, n_steps, c_inlet=1.0):
     return c_final
 
 
-def benchmark_reactor_methods(Pe, Da, t_final=5.0, N=128):
-    """Compare methods on reactor for specific Pe, Da."""
+def benchmark_reactor_methods(Pe, Da, t_final=5.0, N=128, n_reps=10):
+    """Compare methods on reactor for specific Pe, Da.
+
+    Args:
+        Pe: Peclet number
+        Da: Damkohler number
+        t_final: Final time
+        N: Grid points
+        n_reps: Number of repetitions for statistical validity
+
+    Returns:
+        results dict with median ± IQR timing, profiles
+    """
     L, L_diff, L_adv_rxn, z = create_reactor_system(N, Pe, Da)
     dz = 1.0 / (N - 1)
 
@@ -210,61 +235,85 @@ def benchmark_reactor_methods(Pe, Da, t_final=5.0, N=128):
 
     # RK4: use smallest stability limit
     dt_rk4 = min(dt_cfl, dt_diff, dt_rxn, 0.001)
-    n_steps_rk4 = int(t_final / dt_rk4)
+    n_steps_rk4 = int(np.ceil(t_final / dt_rk4))
+    t_final_rk4 = n_steps_rk4 * dt_rk4
 
     # CN: unconditionally stable, can use larger timestep
     dt_cn = min(10 * dz, 0.05, t_final / 100)
-    n_steps_cn = int(t_final / dt_cn)
+    n_steps_cn = int(np.ceil(t_final / dt_cn))
+    t_final_cn = n_steps_cn * dt_cn
 
     # IMEX: advection CFL limited, but can handle diffusion implicitly
     dt_imex = min(dt_cfl * 2, 0.02, t_final / 100)
-    n_steps_imex = int(t_final / dt_imex)
+    n_steps_imex = int(np.ceil(t_final / dt_imex))
+    t_final_imex = n_steps_imex * dt_imex
 
-    # Warmup JIT
+    # Warmup JIT (discard results)
     _ = run_reactor_rk4(c0, L, dt_rk4, 10)
     _ = run_reactor_cn(c0, L, dt_cn, 10)
     _ = run_reactor_imex(c0, L_diff, L_adv_rxn, dt_imex, 10)
 
-    # RK4 benchmark
-    start = time.perf_counter()
-    c_rk4 = run_reactor_rk4(c0, L, dt_rk4, n_steps_rk4)
-    c_rk4.block_until_ready()
-    time_rk4 = time.perf_counter() - start
+    # RK4 benchmark with n_reps
+    times_rk4 = []
+    for _ in range(n_reps):
+        start = time.perf_counter()
+        c_rk4 = run_reactor_rk4(c0, L, dt_rk4, n_steps_rk4)
+        c_rk4.block_until_ready()
+        times_rk4.append(time.perf_counter() - start)
+
+    check_finite_tree(c_rk4, "RK4 final state")
     conv_rk4 = 1.0 - float(c_rk4[-1])
+    median_rk4, iqr_rk4 = compute_stats(times_rk4)
 
     results['RK4'] = {
-        'time': time_rk4,
+        'time_s': median_rk4,
+        'iqr_s': iqr_rk4,
         'conversion': conv_rk4,
         'steps': n_steps_rk4,
-        'dt': dt_rk4
+        'dt': dt_rk4,
+        't_final': t_final_rk4
     }
 
-    # CN benchmark
-    start = time.perf_counter()
-    c_cn = run_reactor_cn(c0, L, dt_cn, n_steps_cn)
-    c_cn.block_until_ready()
-    time_cn = time.perf_counter() - start
+    # CN benchmark with n_reps
+    times_cn = []
+    for _ in range(n_reps):
+        start = time.perf_counter()
+        c_cn = run_reactor_cn(c0, L, dt_cn, n_steps_cn)
+        c_cn.block_until_ready()
+        times_cn.append(time.perf_counter() - start)
+
+    check_finite_tree(c_cn, "CN final state")
     conv_cn = 1.0 - float(c_cn[-1])
+    median_cn, iqr_cn = compute_stats(times_cn)
 
     results['CN'] = {
-        'time': time_cn,
+        'time_s': median_cn,
+        'iqr_s': iqr_cn,
         'conversion': conv_cn,
         'steps': n_steps_cn,
-        'dt': dt_cn
+        'dt': dt_cn,
+        't_final': t_final_cn
     }
 
-    # IMEX benchmark
-    start = time.perf_counter()
-    c_imex = run_reactor_imex(c0, L_diff, L_adv_rxn, dt_imex, n_steps_imex)
-    c_imex.block_until_ready()
-    time_imex = time.perf_counter() - start
+    # IMEX benchmark with n_reps
+    times_imex = []
+    for _ in range(n_reps):
+        start = time.perf_counter()
+        c_imex = run_reactor_imex(c0, L_diff, L_adv_rxn, dt_imex, n_steps_imex)
+        c_imex.block_until_ready()
+        times_imex.append(time.perf_counter() - start)
+
+    check_finite_tree(c_imex, "IMEX final state")
     conv_imex = 1.0 - float(c_imex[-1])
+    median_imex, iqr_imex = compute_stats(times_imex)
 
     results['IMEX'] = {
-        'time': time_imex,
+        'time_s': median_imex,
+        'iqr_s': iqr_imex,
         'conversion': conv_imex,
         'steps': n_steps_imex,
-        'dt': dt_imex
+        'dt': dt_imex,
+        't_final': t_final_imex
     }
 
     # Analytical plug flow approximation (Pe -> inf)
@@ -342,12 +391,21 @@ def solve_diffusion_fd_cn_periodic(u0, D, dx, dt, n_steps):
     return u_final
 
 
-def benchmark_diffusion_methods(N=128, D=0.1, t_final=0.1):
+def benchmark_diffusion_methods(N=128, D=0.1, t_final=0.1, n_reps=10):
     """
     Compare FFT-CN (spectral) and FD-CN (finite-difference) for diffusion.
 
     FAIR COMPARISON: Both use periodic BC, same IC, same exact solution.
     Only difference is spatial operator: spectral (-k²) vs FD eigenvalues.
+
+    Args:
+        N: Grid points
+        D: Diffusion coefficient
+        t_final: Final time
+        n_reps: Number of repetitions for statistical validity
+
+    Returns:
+        results dict with median ± IQR timing
     """
 
     # Both methods: periodic domain [0, 1) with N points
@@ -365,28 +423,42 @@ def benchmark_diffusion_methods(N=128, D=0.1, t_final=0.1):
     dt_values = [0.01, 0.005, 0.002, 0.001, 0.0005, 0.0002]
 
     for dt in dt_values:
-        n_steps = int(t_final / dt)
+        n_steps = int(np.ceil(t_final / dt))
+        t_actual = n_steps * dt
 
         # FFT-CN (pseudo-spectral eigenvalues)
         _ = solve_diffusion_fft_cn(u0, D, dx, dt, 10)  # Warmup
-        start = time.perf_counter()
-        u_fft = solve_diffusion_fft_cn(u0, D, dx, dt, n_steps)
-        u_fft.block_until_ready()
-        time_fft = time.perf_counter() - start
-        error_fft = np.max(np.abs(np.array(u_fft) - u_exact(t_final)))
+
+        times_fft = []
+        for _ in range(n_reps):
+            start = time.perf_counter()
+            u_fft = solve_diffusion_fft_cn(u0, D, dx, dt, n_steps)
+            u_fft.block_until_ready()
+            times_fft.append(time.perf_counter() - start)
+
+        check_finite_tree(u_fft, f"FFT-CN dt={dt}")
+        error_fft = np.max(np.abs(np.array(u_fft) - u_exact(t_actual)))
+        median_fft, iqr_fft = compute_stats(times_fft)
 
         # FD-CN (finite-difference eigenvalues, but same periodic BC)
         _ = solve_diffusion_fd_cn_periodic(u0, D, dx, dt, 10)  # Warmup
-        start = time.perf_counter()
-        u_fd = solve_diffusion_fd_cn_periodic(u0, D, dx, dt, n_steps)
-        u_fd.block_until_ready()
-        time_fd = time.perf_counter() - start
-        error_fd = np.max(np.abs(np.array(u_fd) - u_exact(t_final)))
+
+        times_fd = []
+        for _ in range(n_reps):
+            start = time.perf_counter()
+            u_fd = solve_diffusion_fd_cn_periodic(u0, D, dx, dt, n_steps)
+            u_fd.block_until_ready()
+            times_fd.append(time.perf_counter() - start)
+
+        check_finite_tree(u_fd, f"FD-CN dt={dt}")
+        error_fd = np.max(np.abs(np.array(u_fd) - u_exact(t_actual)))
+        median_fd, iqr_fd = compute_stats(times_fd)
 
         results[dt] = {
-            'FFT-CN': {'time': time_fft, 'error': error_fft},
-            'FD-CN': {'time': time_fd, 'error': error_fd},
-            'n_steps': n_steps
+            'FFT-CN': {'time_s': median_fft, 'iqr_s': iqr_fft, 'error': error_fft},
+            'FD-CN': {'time_s': median_fd, 'iqr_s': iqr_fd, 'error': error_fd},
+            'n_steps': n_steps,
+            't_final': t_actual
         }
 
     return results, x
@@ -404,13 +476,13 @@ def plot_reactor_comparison(results_by_regime, save_path):
     methods = ['RK4', 'CN', 'IMEX']
     colors = {'RK4': '#1f77b4', 'CN': '#2ca02c', 'IMEX': '#ff7f0e'}
 
-    # Runtime comparison
+    # Runtime comparison (using time_s for median)
     ax = axes[0]
     x = np.arange(len(regimes))
     width = 0.25
 
     for i, method in enumerate(methods):
-        times = [results_by_regime[r][method]['time'] for r in regimes]
+        times = [results_by_regime[r][method]['time_s'] for r in regimes]
         ax.bar(x + (i-1)*width, times, width, label=method, color=colors[method])
 
     ax.set_ylabel('Runtime (s)', fontsize=12)
@@ -425,8 +497,8 @@ def plot_reactor_comparison(results_by_regime, save_path):
     # Speedup over RK4
     ax = axes[1]
     width = 0.35
-    speedups_cn = [results_by_regime[r]['RK4']['time']/results_by_regime[r]['CN']['time'] for r in regimes]
-    speedups_imex = [results_by_regime[r]['RK4']['time']/results_by_regime[r]['IMEX']['time'] for r in regimes]
+    speedups_cn = [results_by_regime[r]['RK4']['time_s']/results_by_regime[r]['CN']['time_s'] for r in regimes]
+    speedups_imex = [results_by_regime[r]['RK4']['time_s']/results_by_regime[r]['IMEX']['time_s'] for r in regimes]
 
     bars1 = ax.bar(x - width/2, speedups_cn, width, label='CN', color=colors['CN'])
     bars2 = ax.bar(x + width/2, speedups_imex, width, label='IMEX', color=colors['IMEX'])
@@ -478,10 +550,10 @@ def plot_work_precision(results, save_path):
 
     dt_values = sorted(results.keys(), reverse=True)
 
-    times_fft = [results[dt]['FFT-CN']['time'] for dt in dt_values]
+    times_fft = [results[dt]['FFT-CN']['time_s'] for dt in dt_values]
     errors_fft = [results[dt]['FFT-CN']['error'] for dt in dt_values]
 
-    times_fd = [results[dt]['FD-CN']['time'] for dt in dt_values]
+    times_fd = [results[dt]['FD-CN']['time_s'] for dt in dt_values]
     errors_fd = [results[dt]['FD-CN']['error'] for dt in dt_values]
 
     ax.loglog(times_fft, errors_fft, 'o-', color='#1f77b4', linewidth=2,
@@ -530,15 +602,15 @@ if __name__ == "__main__":
 
     reactor_results = {}
     for regime_name, (Pe, Da) in regimes.items():
-        print(f"\nRunning {regime_name.replace(chr(10), ', ')}...")
-        results, z, c_rk4, c_cn, c_imex = benchmark_reactor_methods(Pe, Da)
+        print(f"\nRunning {regime_name.replace(chr(10), ', ')} with {N_REPS} reps...")
+        results, z, c_rk4, c_cn, c_imex = benchmark_reactor_methods(Pe, Da, n_reps=N_REPS)
         reactor_results[regime_name] = results
 
-        print(f"  RK4:  {results['RK4']['time']:.4f}s, {results['RK4']['steps']} steps, X={results['RK4']['conversion']:.4f}")
-        print(f"  CN:   {results['CN']['time']:.4f}s, {results['CN']['steps']} steps, X={results['CN']['conversion']:.4f}")
-        print(f"  IMEX: {results['IMEX']['time']:.4f}s, {results['IMEX']['steps']} steps, X={results['IMEX']['conversion']:.4f}")
+        print(f"  RK4:  {results['RK4']['time_s']:.4f}s ± {results['RK4']['iqr_s']:.4f}s, {results['RK4']['steps']} steps, X={results['RK4']['conversion']:.4f}")
+        print(f"  CN:   {results['CN']['time_s']:.4f}s ± {results['CN']['iqr_s']:.4f}s, {results['CN']['steps']} steps, X={results['CN']['conversion']:.4f}")
+        print(f"  IMEX: {results['IMEX']['time_s']:.4f}s ± {results['IMEX']['iqr_s']:.4f}s, {results['IMEX']['steps']} steps, X={results['IMEX']['conversion']:.4f}")
         print(f"  Analytical (plug flow): X={results['analytical']['conversion']:.4f}")
-        print(f"  Speedup: CN={results['RK4']['time']/results['CN']['time']:.1f}×, IMEX={results['RK4']['time']/results['IMEX']['time']:.1f}×")
+        print(f"  Speedup: CN={results['RK4']['time_s']/results['CN']['time_s']:.1f}×, IMEX={results['RK4']['time_s']/results['IMEX']['time_s']:.1f}×")
 
     # Plot reactor comparison
     plot_reactor_comparison(reactor_results, FIGURES_DIR / "fig_reactor_method_comparison.pdf")
@@ -547,20 +619,25 @@ if __name__ == "__main__":
     print("PART 2: Diffusion Work-Precision (Fair Comparison: Same Periodic BC)")
     print("="*70)
 
-    diffusion_results, x = benchmark_diffusion_methods(N=128, D=0.1, t_final=0.1)
+    diffusion_results, x = benchmark_diffusion_methods(N=128, D=0.1, t_final=0.1, n_reps=N_REPS)
 
-    print("\nWork-Precision Results (N=128, periodic BC for both):")
+    print(f"\nWork-Precision Results (N=128, periodic BC for both, {N_REPS} reps):")
     print(f"{'dt':<10} {'FFT-CN time':<15} {'FFT-CN error':<15} {'FD-CN time':<15} {'FD-CN error':<15}")
     print("-"*70)
     for dt in sorted(diffusion_results.keys(), reverse=True):
         r = diffusion_results[dt]
-        print(f"{dt:<10.4f} {r['FFT-CN']['time']:<15.4f} {r['FFT-CN']['error']:<15.2e} {r['FD-CN']['time']:<15.4f} {r['FD-CN']['error']:<15.2e}")
+        print(f"{dt:<10.4f} {r['FFT-CN']['time_s']:<15.4f} {r['FFT-CN']['error']:<15.2e} {r['FD-CN']['time_s']:<15.4f} {r['FD-CN']['error']:<15.2e}")
 
     # Plot work-precision
     plot_work_precision(diffusion_results, FIGURES_DIR / "fig_diffusion_work_precision.pdf")
 
-    # Save results
+    # Save results with metadata
     all_results = {
+        'config': {
+            'device': device_str,
+            'dtype': 'float64',
+            'n_reps': N_REPS,
+        },
         'reactor_methods': {k.replace('\n', ' '): v for k, v in reactor_results.items()},
         'diffusion_work_precision': {str(k): v for k, v in diffusion_results.items()}
     }
@@ -575,8 +652,8 @@ if __name__ == "__main__":
     print("="*70)
     print("\nReactor Method Comparison (RK4 vs CN vs IMEX):")
     for regime_name, results in reactor_results.items():
-        speedup_cn = results['RK4']['time'] / results['CN']['time']
-        speedup_imex = results['RK4']['time'] / results['IMEX']['time']
+        speedup_cn = results['RK4']['time_s'] / results['CN']['time_s']
+        speedup_imex = results['RK4']['time_s'] / results['IMEX']['time_s']
         print(f"  {regime_name.replace(chr(10), ', ')}: CN={speedup_cn:.1f}×, IMEX={speedup_imex:.1f}× faster than RK4")
 
     print("\nDiffusion Work-Precision (FAIR: same periodic BC):")

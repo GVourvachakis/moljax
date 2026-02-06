@@ -6,14 +6,18 @@
 [![JAX](https://img.shields.io/badge/JAX-0.4.25+-green.svg)](https://github.com/google/jax)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## SISC Paper
+## Paper
 
 This repository accompanies the paper:
 
-> **MOL-JAX: A JIT-Compiled Method of Lines Engine with FFT-Diagonalized Newton–Krylov Solvers for Stiff Parabolic PDEs**
-> Submitted to SIAM Journal on Scientific Computing (SISC)
+> **Accelerating Stiff Reaction-Diffusion Simulation: GPU Method of Lines with FFT Preconditioning in JAX**
+> Gorgi Pavlov. Submitted to *Journal of Computational Physics*.
 
-To reproduce all paper results, see [REPRODUCE.md](REPRODUCE.md).
+To reproduce all paper results with a single command:
+```bash
+./reproduce_paper.sh
+```
+See [REPRODUCE.md](REPRODUCE.md) for detailed instructions.
 
 ---
 
@@ -190,11 +194,12 @@ julia fft_cn_solver_gpu.jl     # GPU version (requires CUDA.jl)
 If you use `moljax` in your research, please cite:
 
 ```bibtex
-@article{moljax2025,
-  title={moljax: GPU-Portable Adaptive Method-of-Lines in JAX via AD-JVP Newton--Krylov and Spectral/FFT Operators},
+@article{pavlov2025moljax,
+  title={Accelerating Stiff Reaction-Diffusion Simulation: {GPU} Method of Lines with {FFT} Preconditioning in {JAX}},
   author={Pavlov, Gorgi},
-  journal={Computers \& Chemical Engineering},
-  year={2025}
+  journal={Journal of Computational Physics},
+  year={2025},
+  note={Submitted}
 }
 ```
 

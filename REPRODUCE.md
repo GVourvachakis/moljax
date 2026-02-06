@@ -37,25 +37,42 @@ pip install jax[cuda12] numpy scipy matplotlib diffrax
 pip install -e .
 ```
 
-## Running Benchmarks
+## Quick Start: One-Script Reproduction
+
+```bash
+# Reproduce ALL paper results with one command (~60-90 min on GPU)
+./reproduce_paper.sh
+
+# Quick validation (~5 min, fewer reps)
+./reproduce_paper.sh --quick
+```
+
+## Running Benchmarks Individually
 
 All benchmark scripts are in `benchmarks/`.
 
 ```bash
 cd benchmarks
 
-# Run all benchmarks (may take 30+ minutes)
-python benchmark_vs_scipy.py      # Table 5: SciPy comparison
-python benchmark_scaling.py       # Figure: CPU/GPU scaling
-python benchmark_gray_scott.py    # Table 6: Gray-Scott methods
-python benchmark_gmres_sweep.py   # Table: GMRES iterations
-python benchmark_jit_speedup.py   # Figure: JIT speedup
-python benchmark_tubular_reactor.py  # Reactor case study
-python benchmark_method_comparison.py  # Method comparison
-python benchmark_solver_comparison.py  # Solver comparison
+# Core benchmarks (Tables 5-8, Figures 6-11)
+python benchmark_vs_scipy.py           # Table 5: SciPy comparison
+python benchmark_scaling.py            # Figure 7: CPU/GPU scaling
+python benchmark_gray_scott.py         # Table 6: Gray-Scott methods
+python benchmark_gmres_sweep.py        # Table 7: GMRES iterations
+python benchmark_jit_speedup.py        # Figure 9: JIT speedup
+python benchmark_tubular_reactor.py    # Table 8: Stiff ADR benchmark
+python benchmark_method_comparison.py  # Figure 10: Method comparison
+python benchmark_solver_comparison.py  # Figure 11: Solver comparison
 
-# Generate paper figures
+# Stress test / broadening experiments (Tables 9-10, Figures 12-13)
+python benchmark_variable_coeff.py     # Table 9: Variable-coefficient stress test
+python benchmark_mixed_bc.py           # Table 10: Mixed BC (FFT-DST vs FD sparse)
+
+# Generate all paper figures
 python generate_paper_figures.py
+
+# Or run everything in sequence:
+bash run_all_benchmarks.sh
 ```
 
 ## Expected Results
@@ -107,6 +124,28 @@ Results will vary depending on hardware. Expected ranges below are for RTX 4090 
 
 **Key metric**: FFT preconditioning should reduce GMRES iterations by 10-100x depending on stiffness.
 
+### Table 9: Variable-Coefficient Stress Test (N=256, 1D)
+
+| Profile | Contrast | No Precond | FFT Precond | Reduction |
+|---------|----------|------------|-------------|-----------|
+| smooth | 1 | ~70 | ~15 | ~4.6x |
+| smooth | 100 | ~120 | ~15 | ~8.1x |
+| smooth | 1000 | ~250 | ~13 | ~18.7x |
+| step | 1000 | ~440 | ~14 | ~31.5x |
+
+**Key metric**: FFT preconditioner (using D_mean) remains effective even at 1000:1 contrast.
+
+### Table 10: Mixed BC Benchmark (periodic-x, Dirichlet-y)
+
+| Grid | FFT-DST (s) | FD Sparse (s) | Speedup |
+|------|-------------|---------------|---------|
+| 64x64 | ~0.01 | ~0.02 | ~2x |
+| 128x128 | ~0.03 | ~0.12 | ~4x |
+| 256x256 | ~0.12 | ~2.10 | ~17.5x |
+| 512x512 | ~0.50 | FAIL (NaN) | -- |
+
+**Key metric**: FFT-DST achieves 17.5x speedup at 256x256 with spectral accuracy (~2e-7 L2 error).
+
 ## Troubleshooting
 
 ### Out of Memory
@@ -130,8 +169,10 @@ Results are saved to `benchmarks/results/`:
 - `scipy_comparison.json` - Table 5 data
 - `gray_scott.json` - Table 6 data
 - `scaling.json` - CPU/GPU scaling data
-- `gmres_sweep.json` - GMRES iteration data
-- `reactor_results.json` - Reactor case study
+- `gmres_sweep.json` - Table 7: GMRES iteration data
+- `reactor_results.json` - Table 8: Stiff ADR benchmark
+- `variable_coeff.json` - Table 9: Variable-coefficient stress test
+- `mixed_bc.json` - Table 10: Mixed BC benchmark
 
 Figures are saved to `figures/` in PDF and PNG format.
 
