@@ -8,11 +8,43 @@ This module extends FFT acceleration to Dirichlet and Neumann BCs using:
 The key insight is that DST/DCT diagonalize the Laplacian on domains with
 these boundary conditions, similar to how FFT diagonalizes on periodic domains.
 
-Eigenvalue formulas:
-- Dirichlet: λ_k = -4/dx² · sin²(πk/(2(N+1))), k = 1, ..., N
-- Neumann:   λ_k = -4/dx² · sin²(πk/(2N)),     k = 0, ..., N-1
+Grid layout matters
+-------------------
+The correct transform depends on where the unknowns sit relative to the
+boundary, so transform, endpoint stencil, normalization and eigenvalues
+must be chosen as a set:
 
-Reference: Trefethen, "Spectral Methods in MATLAB" (2000)
+- Dirichlet (node-centred, DST-I): unknowns at x_j = j·dx for j = 1..N,
+  boundaries at x = 0 and x = (N+1)·dx where u vanishes.
+      λ_k = -4/dx² · sin²(πk/(2(N+1))),   k = 1, ..., N
+
+- Neumann, node-centred (DCT-I): unknowns at x_j = j·dx for j = 0..N-1,
+  with the boundary *on* the first and last unknowns, so the domain is
+  L = (N-1)·dx and the end rows of the second-difference operator are
+  [-2, 2]/dx². This is the layout described in the moljax paper.
+      λ_k = -4/dx² · sin²(πk/(2(N-1))),   k = 0, ..., N-1
+
+- Neumann, cell-centred (DCT-II): unknowns at cell centres
+  x_j = (j+½)·dx for j = 0..N-1, so the domain is L = N·dx and the
+  boundary falls half a cell outside the end unknowns.
+      λ_k = -4/dx² · sin²(πk/(2N)),       k = 0, ..., N-1
+
+Both Neumann layouts are supported. ``BCType.NEUMANN`` selects the
+node-centred DCT-I form, which pairs consistently with the node-centred
+DST-I Dirichlet path above; use ``BCType.NEUMANN_CELL`` for the
+cell-centred DCT-II form.
+
+.. note::
+   Before v1.1.0 ``BCType.NEUMANN`` resolved to the cell-centred DCT-II
+   symbol, which was inconsistent both with this module's node-centred
+   Dirichlet path and with the paper's stated DCT-I Neumann treatment.
+   Pass ``BCType.NEUMANN_CELL`` (or ``centering='cell'``) to recover the
+   previous behaviour exactly.
+
+References:
+    Trefethen, "Spectral Methods in MATLAB" (2000).
+    Pavlov, G. Computer Physics Communications 326 (2026) 110205,
+    Section 3.1.1. doi:10.1016/j.cpc.2026.110205
 """
 
 from __future__ import annotations
@@ -26,11 +58,23 @@ from jax.scipy.fft import dct, idct
 
 
 class BCType(Enum):
-    """Boundary condition types for non-periodic domains."""
-    DIRICHLET = 'dirichlet'  # u = 0 at boundaries
-    NEUMANN = 'neumann'      # du/dx = 0 at boundaries
-    MIXED_DN = 'mixed_dn'    # Dirichlet at left, Neumann at right
-    MIXED_ND = 'mixed_nd'    # Neumann at left, Dirichlet at right
+    """Boundary condition types for non-periodic domains.
+
+    The two Neumann members differ in grid layout, not just in transform:
+    ``NEUMANN`` places unknowns on the boundary nodes (DCT-I, domain
+    length ``(N-1)*dx``), while ``NEUMANN_CELL`` places them at cell
+    centres (DCT-II, domain length ``N*dx``).
+    """
+    DIRICHLET = 'dirichlet'          # u = 0 at boundaries (DST-I, node-centred)
+    NEUMANN = 'neumann'              # du/dx = 0, node-centred (DCT-I)
+    NEUMANN_CELL = 'neumann_cell'    # du/dx = 0, cell-centred (DCT-II)
+    MIXED_DN = 'mixed_dn'            # Dirichlet at left, Neumann at right
+    MIXED_ND = 'mixed_nd'            # Neumann at left, Dirichlet at right
+
+
+#: Alias kept for symmetry with :attr:`BCType.NEUMANN_CELL` at call sites
+#: that want the layout stated explicitly.
+NEUMANN_NODE = BCType.NEUMANN
 
 
 class NonperiodicFFTCache(NamedTuple):
@@ -134,6 +178,71 @@ def idst_I_fast(X: jnp.ndarray) -> jnp.ndarray:
 
 
 # =============================================================================
+# DCT-I (node-centred Neumann)
+# =============================================================================
+#
+# JAX exposes only the type-2 cosine transform (`jax.scipy.fft.dct` raises
+# for type=1), so DCT-I is built here from the real FFT of the symmetric
+# even extension of length 2N-2. For x[0..N-1] the extension is
+#
+#     [x_0, x_1, ..., x_{N-1}, x_{N-2}, ..., x_1]
+#
+# whose rFFT is real and equals the unnormalized DCT-I
+#
+#     X[k] = x_0 + (-1)^k x_{N-1} + 2 Σ_{n=1}^{N-2} x_n cos(π k n / (N-1))
+#
+# matching scipy.fft.dct(..., type=1). The transform is its own inverse up
+# to the factor 2(N-1).
+
+
+def _even_extension_indices(N: int) -> jnp.ndarray:
+    """Index map for the symmetric even extension used by DCT-I."""
+    if N < 2:
+        raise ValueError(f"DCT-I requires at least 2 points, got N={N}")
+    return jnp.concatenate([jnp.arange(N), jnp.arange(N - 2, 0, -1)])
+
+
+def dct_I(x: jnp.ndarray, axis: int = -1) -> jnp.ndarray:
+    """
+    Type-I Discrete Cosine Transform (unnormalized).
+
+    DCT-I is the transform that diagonalizes the node-centred Neumann
+    Laplacian, whose end rows are [-2, 2]/dx².
+
+    Args:
+        x: Input array with at least 2 points along ``axis``
+        axis: Transform axis
+
+    Returns:
+        DCT-I coefficients, same shape as ``x``
+    """
+    N = x.shape[axis]
+    ext = jnp.take(x, _even_extension_indices(N), axis=axis)
+    return jnp.real(jnp.fft.rfft(ext, axis=axis))
+
+
+def idct_I(X: jnp.ndarray, axis: int = -1) -> jnp.ndarray:
+    """
+    Inverse Type-I Discrete Cosine Transform.
+
+    DCT-I is self-inverse up to scaling: applying it twice multiplies by
+    2(N-1), so ``idct_I(dct_I(x)) == x``.
+    """
+    N = X.shape[axis]
+    return dct_I(X, axis=axis) / (2.0 * (N - 1))
+
+
+def dct_I_2d(x: jnp.ndarray) -> jnp.ndarray:
+    """Separable 2D DCT-I (applied along both axes)."""
+    return dct_I(dct_I(x, axis=-1), axis=-2)
+
+
+def idct_I_2d(X: jnp.ndarray) -> jnp.ndarray:
+    """Separable 2D inverse DCT-I."""
+    return idct_I(idct_I(X, axis=-1), axis=-2)
+
+
+# =============================================================================
 # Eigenvalue Formulas
 # =============================================================================
 
@@ -162,17 +271,53 @@ def laplacian_symbol_dirichlet(N: int, dx: float, dtype=jnp.float64) -> jnp.ndar
     return -4.0 / (dx * dx) * jnp.sin(jnp.pi * k / (2 * (N + 1))) ** 2
 
 
-def laplacian_symbol_neumann(N: int, dx: float, dtype=jnp.float64) -> jnp.ndarray:
+def laplacian_symbol_neumann_node(N: int, dx: float, dtype=jnp.float64) -> jnp.ndarray:
     """
-    Laplacian eigenvalues for Neumann BCs.
+    Laplacian eigenvalues for node-centred Neumann BCs (DCT-I).
 
-    For the second-order centered difference Laplacian with du/dx(0) = du/dx(L) = 0:
+    Unknowns sit on the boundary nodes, x_j = j·dx for j = 0..N-1, so the
+    domain length is L = (N-1)·dx and the second-difference operator has
+    end rows [-2, 2]/dx² after ghost-node elimination:
+
+        [-2,  2,  0, ...,  0,  0]
+        [ 1, -2,  1, ...,  0,  0]
+        ...
+        [ 0,  0,  0, ...,  2, -2]
+
+    Its eigenvectors are cos(πkn/(N-1)) (the DCT-I basis) with
+
+        λ_k = -4/dx² · sin²(πk/(2(N-1))), k = 0, ..., N-1
+
+    Note: λ_0 = 0 corresponds to the constant mode (null space).
+
+    Args:
+        N: Number of grid points, including both boundary nodes
+        dx: Grid spacing
+        dtype: Data type
+
+    Returns:
+        Array of N eigenvalues (λ_0 = 0, rest negative)
+    """
+    if N < 2:
+        raise ValueError(f"Node-centred Neumann requires N >= 2, got N={N}")
+    k = jnp.arange(N, dtype=dtype)
+    return -4.0 / (dx * dx) * jnp.sin(jnp.pi * k / (2 * (N - 1))) ** 2
+
+
+def laplacian_symbol_neumann_cell(N: int, dx: float, dtype=jnp.float64) -> jnp.ndarray:
+    """
+    Laplacian eigenvalues for cell-centred Neumann BCs (DCT-II).
+
+    Unknowns sit at cell centres, x_j = (j+½)·dx for j = 0..N-1, so the
+    domain length is L = N·dx and the boundary falls half a cell outside
+    the end unknowns:
+
         λ_k = -4/dx² · sin²(πk/(2N)), k = 0, ..., N-1
 
     Note: λ_0 = 0 corresponds to the constant mode (null space).
 
     Args:
-        N: Number of grid points
+        N: Number of cells
         dx: Grid spacing
         dtype: Data type
 
@@ -181,6 +326,37 @@ def laplacian_symbol_neumann(N: int, dx: float, dtype=jnp.float64) -> jnp.ndarra
     """
     k = jnp.arange(N, dtype=dtype)
     return -4.0 / (dx * dx) * jnp.sin(jnp.pi * k / (2 * N)) ** 2
+
+
+def laplacian_symbol_neumann(
+    N: int,
+    dx: float,
+    dtype=jnp.float64,
+    centering: str = 'node'
+) -> jnp.ndarray:
+    """
+    Laplacian eigenvalues for Neumann BCs.
+
+    Args:
+        N: Number of grid points (nodes) or cells, per ``centering``
+        dx: Grid spacing
+        dtype: Data type
+        centering: ``'node'`` for the DCT-I symbol (default, matches the
+            paper and the node-centred DST-I Dirichlet path), or
+            ``'cell'`` for the DCT-II symbol.
+
+    Returns:
+        Array of N eigenvalues (λ_0 = 0, rest negative)
+
+    .. note::
+       The default changed in v1.1.0 from cell-centred to node-centred.
+       Pass ``centering='cell'`` for the previous behaviour.
+    """
+    if centering == 'node':
+        return laplacian_symbol_neumann_node(N, dx, dtype)
+    if centering == 'cell':
+        return laplacian_symbol_neumann_cell(N, dx, dtype)
+    raise ValueError(f"centering must be 'node' or 'cell', got {centering!r}")
 
 
 def laplacian_symbol_mixed_dn(N: int, dx: float, dtype=jnp.float64) -> jnp.ndarray:
@@ -223,7 +399,10 @@ def create_nonperiodic_fft_cache(
         lap_sym = laplacian_symbol_dirichlet(N, dx, dtype)
         k = jnp.arange(1, N + 1, dtype=dtype)
     elif bc_type == BCType.NEUMANN:
-        lap_sym = laplacian_symbol_neumann(N, dx, dtype)
+        lap_sym = laplacian_symbol_neumann_node(N, dx, dtype)
+        k = jnp.arange(N, dtype=dtype)
+    elif bc_type == BCType.NEUMANN_CELL:
+        lap_sym = laplacian_symbol_neumann_cell(N, dx, dtype)
         k = jnp.arange(N, dtype=dtype)
     elif bc_type == BCType.MIXED_DN:
         lap_sym = laplacian_symbol_mixed_dn(N, dx, dtype)
@@ -272,25 +451,15 @@ def solve_poisson_dirichlet(
 
 
 @jax.jit
-def solve_poisson_neumann(
+def solve_poisson_neumann_cell(
     rhs: jnp.ndarray,
     laplacian_symbol: jnp.ndarray
 ) -> jnp.ndarray:
     """
-    Solve Poisson equation with Neumann BCs: Δu = f, du/dx(0) = du/dx(L) = 0.
-
-    Uses DCT-II for O(N log N) complexity.
+    Cell-centred Neumann Poisson solve via DCT-II.
 
     Note: Solution is unique only up to a constant. We impose ∫u = 0.
-
-    Args:
-        rhs: Right-hand side f
-        laplacian_symbol: Precomputed eigenvalues (λ_0 = 0)
-
-    Returns:
-        Solution u with zero mean
     """
-    # Transform to spectral space using DCT-II
     rhs_hat = dct(rhs, type=2, norm='ortho')
 
     # Handle null space: set DC component to zero
@@ -303,6 +472,55 @@ def solve_poisson_neumann(
 
     # Transform back using inverse DCT (DCT-III)
     return idct(u_hat, type=2, norm='ortho')
+
+
+@jax.jit
+def solve_poisson_neumann_node(
+    rhs: jnp.ndarray,
+    laplacian_symbol: jnp.ndarray
+) -> jnp.ndarray:
+    """
+    Node-centred Neumann Poisson solve via DCT-I.
+
+    Note: Solution is unique only up to a constant. We impose ∫u = 0.
+    """
+    rhs_hat = dct_I(rhs)
+
+    u_hat = jnp.where(
+        jnp.abs(laplacian_symbol) < 1e-14,
+        0.0,
+        rhs_hat / laplacian_symbol
+    )
+
+    return idct_I(u_hat)
+
+
+def solve_poisson_neumann(
+    rhs: jnp.ndarray,
+    laplacian_symbol: jnp.ndarray,
+    centering: str = 'node'
+) -> jnp.ndarray:
+    """
+    Solve Poisson equation with Neumann BCs: Δu = f, du/dx(0) = du/dx(L) = 0.
+
+    O(N log N) via DCT-I (node-centred) or DCT-II (cell-centred). The
+    ``laplacian_symbol`` must come from the matching layout.
+
+    Note: Solution is unique only up to a constant. We impose ∫u = 0.
+
+    Args:
+        rhs: Right-hand side f
+        laplacian_symbol: Precomputed eigenvalues (λ_0 = 0)
+        centering: ``'node'`` (DCT-I, default) or ``'cell'`` (DCT-II)
+
+    Returns:
+        Solution u with zero mean
+    """
+    if centering == 'node':
+        return solve_poisson_neumann_node(rhs, laplacian_symbol)
+    if centering == 'cell':
+        return solve_poisson_neumann_cell(rhs, laplacian_symbol)
+    raise ValueError(f"centering must be 'node' or 'cell', got {centering!r}")
 
 
 @jax.jit
@@ -331,11 +549,39 @@ def solve_helmholtz_dirichlet(
 
 
 @jax.jit
-def solve_helmholtz_neumann(
+def solve_helmholtz_neumann_cell(
     rhs: jnp.ndarray,
     laplacian_symbol: jnp.ndarray,
     dt: float,
     D: float
+) -> jnp.ndarray:
+    """Cell-centred Neumann Helmholtz solve via DCT-II."""
+    rhs_hat = dct(rhs, type=2, norm='ortho')
+    denom = 1.0 - dt * D * laplacian_symbol
+    u_hat = rhs_hat / denom
+    return idct(u_hat, type=2, norm='ortho')
+
+
+@jax.jit
+def solve_helmholtz_neumann_node(
+    rhs: jnp.ndarray,
+    laplacian_symbol: jnp.ndarray,
+    dt: float,
+    D: float
+) -> jnp.ndarray:
+    """Node-centred Neumann Helmholtz solve via DCT-I."""
+    rhs_hat = dct_I(rhs)
+    denom = 1.0 - dt * D * laplacian_symbol
+    u_hat = rhs_hat / denom
+    return idct_I(u_hat)
+
+
+def solve_helmholtz_neumann(
+    rhs: jnp.ndarray,
+    laplacian_symbol: jnp.ndarray,
+    dt: float,
+    D: float,
+    centering: str = 'node'
 ) -> jnp.ndarray:
     """
     Solve Helmholtz equation: (I - dt·D·Δ)u = f with Neumann BCs.
@@ -345,14 +591,16 @@ def solve_helmholtz_neumann(
         laplacian_symbol: Precomputed Laplacian eigenvalues
         dt: Time step
         D: Diffusion coefficient
+        centering: ``'node'`` (DCT-I, default) or ``'cell'`` (DCT-II)
 
     Returns:
         Solution u
     """
-    rhs_hat = dct(rhs, type=2, norm='ortho')
-    denom = 1.0 - dt * D * laplacian_symbol
-    u_hat = rhs_hat / denom
-    return idct(u_hat, type=2, norm='ortho')
+    if centering == 'node':
+        return solve_helmholtz_neumann_node(rhs, laplacian_symbol, dt, D)
+    if centering == 'cell':
+        return solve_helmholtz_neumann_cell(rhs, laplacian_symbol, dt, D)
+    raise ValueError(f"centering must be 'node' or 'cell', got {centering!r}")
 
 
 # =============================================================================
@@ -398,12 +646,60 @@ def etd1_dirichlet(
     return idst_I_fast(u_new_hat)
 
 
+def _etd1_coefficients(eigenvalues: jnp.ndarray, dt: float):
+    """exp(z) and φ₁(z) = (exp(z)-1)/z, regularized near z = 0."""
+    z = dt * eigenvalues
+    exp_z = jnp.exp(z)
+    phi1_z = jnp.where(
+        jnp.abs(z) < 1e-4,
+        1.0 + z / 2.0 + z**2 / 6.0,
+        (jnp.exp(z) - 1.0) / z
+    )
+    return exp_z, phi1_z
+
+
 @jax.jit
-def etd1_neumann(
+def etd1_neumann_cell(
     u: jnp.ndarray,
     N_u: jnp.ndarray,
     eigenvalues: jnp.ndarray,
     dt: float
+) -> jnp.ndarray:
+    """ETD1 step for cell-centred Neumann diffusion (DCT-II)."""
+    exp_z, phi1_z = _etd1_coefficients(eigenvalues, dt)
+
+    u_hat = dct(u, type=2, norm='ortho')
+    N_hat = dct(N_u, type=2, norm='ortho')
+
+    u_new_hat = exp_z * u_hat + dt * phi1_z * N_hat
+
+    return idct(u_new_hat, type=2, norm='ortho')
+
+
+@jax.jit
+def etd1_neumann_node(
+    u: jnp.ndarray,
+    N_u: jnp.ndarray,
+    eigenvalues: jnp.ndarray,
+    dt: float
+) -> jnp.ndarray:
+    """ETD1 step for node-centred Neumann diffusion (DCT-I)."""
+    exp_z, phi1_z = _etd1_coefficients(eigenvalues, dt)
+
+    u_hat = dct_I(u)
+    N_hat = dct_I(N_u)
+
+    u_new_hat = exp_z * u_hat + dt * phi1_z * N_hat
+
+    return idct_I(u_new_hat)
+
+
+def etd1_neumann(
+    u: jnp.ndarray,
+    N_u: jnp.ndarray,
+    eigenvalues: jnp.ndarray,
+    dt: float,
+    centering: str = 'node'
 ) -> jnp.ndarray:
     """
     ETD1 step for diffusion with Neumann BCs.
@@ -413,28 +709,16 @@ def etd1_neumann(
         N_u: Nonlinear term N(u)
         eigenvalues: Diffusion eigenvalues
         dt: Time step
+        centering: ``'node'`` (DCT-I, default) or ``'cell'`` (DCT-II)
 
     Returns:
         Updated solution
     """
-    z = dt * eigenvalues
-
-    # Handle λ_0 = 0 case
-    exp_z = jnp.exp(z)
-    phi1_z = jnp.where(
-        jnp.abs(z) < 1e-4,
-        1.0 + z/2.0 + z**2/6.0,
-        (jnp.exp(z) - 1.0) / z
-    )
-
-    # Transform using DCT
-    u_hat = dct(u, type=2, norm='ortho')
-    N_hat = dct(N_u, type=2, norm='ortho')
-
-    # ETD1 formula
-    u_new_hat = exp_z * u_hat + dt * phi1_z * N_hat
-
-    return idct(u_new_hat, type=2, norm='ortho')
+    if centering == 'node':
+        return etd1_neumann_node(u, N_u, eigenvalues, dt)
+    if centering == 'cell':
+        return etd1_neumann_cell(u, N_u, eigenvalues, dt)
+    raise ValueError(f"centering must be 'node' or 'cell', got {centering!r}")
 
 
 # =============================================================================
