@@ -441,14 +441,33 @@ def compare_nilt_vs_timestepping(
     def zero_rhs(state, t):
         return {name: jnp.zeros_like(v) for name, v in state.items()}
 
-    # Warmup
+    # Only the final state is used below, so ask etd_integrate to retain
+    # just the endpoint. Otherwise it materializes every intermediate
+    # step, which for long horizons on fine grids is hundreds of MB that
+    # are immediately discarded.
+    #
+    # `n_steps` above uses ceil, but etd_integrate floors (t_end - t_start)/dt
+    # internally. save_every must match the number of steps actually taken,
+    # or no sample is ever retained and the "final" state is still u0.
+    n_steps_taken = int(t_end / tss_dt)
+    save_every = max(n_steps_taken, 1)
+
+    def _integrate():
+        return etd_integrate(
+            {'u': u0}, (0.0, t_end), tss_dt, {'u': op}, zero_rhs,
+            method=tss_method, save_every=save_every,
+        )
+
+    # Warmup (also pays the one-time JIT compilation)
     for _ in range(n_warmup):
-        _, hist = etd_integrate({'u': u0}, (0.0, t_end), tss_dt, {'u': op}, zero_rhs, method=tss_method)
+        _, hist = _integrate()
+        jax.block_until_ready(hist[-1]['u'])
 
     # Timing
     t0 = time.perf_counter()
     for _ in range(n_runs):
-        _, hist = etd_integrate({'u': u0}, (0.0, t_end), tss_dt, {'u': op}, zero_rhs, method=tss_method)
+        _, hist = _integrate()
+        jax.block_until_ready(hist[-1]['u'])
     tss_time = (time.perf_counter() - t0) / n_runs * 1000  # ms
 
     u_tss = hist[-1]['u']

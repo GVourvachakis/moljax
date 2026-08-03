@@ -83,19 +83,15 @@ The older `./reproduce_paper.sh` entry point still works, and
 ## Test Suite
 
 ```bash
-pytest                # standard suite (~6 min on RTX 5060)
-pytest -m slow        # only the slow tests
-pytest -m ""          # everything
+pytest        # full suite, 362 tests, ~5.5 min on RTX 5060
 ```
 
-Three tests are marked `slow` and deselected by default. Two of them
-(`test_fft_nilt_bridge.py::TestNILTAccuracy::test_nilt_vs_timestepping_agreement`
-and `TestQuantitativeResults::test_error_table_nilt_vs_tss`) exercise
-`compare_nilt_vs_timestepping`, which selects `tss_dt = 0.1 / rho` and
-therefore integrates tens of thousands of ETDRK4 steps through an eager
-Python loop. They run for many minutes to hours. This is a performance
-property of the eager integration path, not a correctness failure; the
-paper's benchmarks use the JIT-compiled path and are unaffected.
+Nothing is deselected by default.
+
+Prior to v1.1.1 the NILT-bridge tests ran for many minutes to hours,
+because `etd_integrate` stepped through an eager Python loop and every
+step paid full XLA dispatch. That loop is now compiled, with output
+bit-identical to the previous implementation.
 
 ## Running Benchmarks Individually
 

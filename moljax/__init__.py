@@ -59,7 +59,7 @@ from moljax.core.preconditioners import (
 )
 from moljax.core.dt_policy import propose_dt, CFLParams, PIDParams
 
-__version__ = "1.1.0"
+__version__ = "1.1.1"
 __all__ = [
     # Grid
     "Grid1D",

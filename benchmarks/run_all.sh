@@ -80,7 +80,8 @@ EOF
 # ------------------------------------------------------------------
 # Controlled kernel and backend studies (paper Section 5.1)
 # ------------------------------------------------------------------
-run "GPU FFT baseline: CuPy / nvmath / JAX"   benchmark_cupy_fft.py
+run "GPU FFT baseline: CuPy / nvmath / JAX"   benchmark_fft_3lib.py
+run "GPU FFT: CuPy vs JAX (fft2 + rfft2)"     benchmark_cupy_fft.py
 run "JIT x device factorial"                  benchmark_jit_factorial.py
 run "JIT speedup"                             benchmark_jit_speedup.py
 

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from typing import Callable, Dict, NamedTuple, Optional
 
+import jax
 import jax.numpy as jnp
 from jax import lax
 
@@ -387,32 +388,93 @@ def etd_integrate(
 
     Returns:
         Tuple of (t_array, state_history)
+
+    Notes:
+        The time-stepping loop is compiled. Previously this was an eager
+        Python ``for`` loop, so every step paid full XLA dispatch and
+        long integrations (tens of thousands of steps) took many minutes
+        to hours. Stepping now runs inside ``lax.fori_loop`` when only
+        the endpoint is retained, and ``lax.scan`` when intermediate
+        states are saved.
+
+        When ``save_every >= n_steps`` no intermediate state is
+        materialized, which matters for long horizons: collecting every
+        step of a 256-point, 130k-step run would allocate hundreds of MB
+        that the caller usually discards.
     """
+    if method not in ('etd1', 'etd2', 'etdrk4'):
+        raise ValueError(f"Unknown method: {method}. Use 'etd1', 'etd2', or 'etdrk4'")
+
     t_start, t_end = t_span
     n_steps = int((t_end - t_start) / dt)
 
+    if n_steps <= 0:
+        return jnp.array([t_start]), [u0]
+
+    # Hoist the method dispatch out of the loop. ETD2 carries the previous
+    # nonlinear term; its first step seeds that term from None, so it is
+    # taken eagerly and the compiled loop covers the remainder.
+    if method == 'etd2':
+        seed_state, seed_N = etd2_step(u0, t_start, dt, linear_ops, nonlinear_rhs, None)
+        carry = (seed_state, seed_N)
+        eager_states = [seed_state]
+
+        def advance(c, t):
+            return etd2_step(c[0], t, dt, linear_ops, nonlinear_rhs, c[1])
+
+        def state_of(c):
+            return c[0]
+    else:
+        step_impl = etd1_step if method == 'etd1' else etdrk4_step
+        carry = u0
+        eager_states = []
+
+        def advance(c, t):
+            return step_impl(c, t, dt, linear_ops, nonlinear_rhs)
+
+        def state_of(c):
+            return c
+
+    n_done = len(eager_states)
+    n_rem = n_steps - n_done
+
+    # Step indices (0-based) whose result is retained, matching the
+    # original `(step + 1) % save_every == 0` rule.
+    save_steps = [s for s in range(n_steps) if (s + 1) % save_every == 0]
+
+    needs_history = any(s >= n_done and s != n_steps - 1 for s in save_steps)
+
+    if not needs_history:
+        # Only the endpoint (at most) is kept: loop without collecting.
+        if n_rem > 0:
+            def fori_body(i, c):
+                return advance(c, t_start + dt * (n_done + i))
+
+            carry = lax.fori_loop(0, n_rem, fori_body, carry)
+
+        def state_after(step_idx):
+            if step_idx < n_done:
+                return eager_states[step_idx]
+            return state_of(carry)
+    else:
+        ts = t_start + dt * (n_done + jnp.arange(n_rem, dtype=jnp.result_type(float)))
+
+        def scan_body(c, t):
+            c_new = advance(c, t)
+            return c_new, state_of(c_new)
+
+        carry, stacked = lax.scan(scan_body, carry, ts)
+
+        def state_after(step_idx):
+            if step_idx < n_done:
+                return eager_states[step_idx]
+            return jax.tree.map(lambda a: a[step_idx - n_done], stacked)
+
     t_history = [t_start]
     state_history = [u0]
-
-    state = u0
-    t = t_start
-    N_prev = None
-
-    for step in range(n_steps):
-        if method == 'etd1':
-            state = etd1_step(state, t, dt, linear_ops, nonlinear_rhs)
-        elif method == 'etd2':
-            state, N_prev = etd2_step(state, t, dt, linear_ops, nonlinear_rhs, N_prev)
-        elif method == 'etdrk4':
-            state = etdrk4_step(state, t, dt, linear_ops, nonlinear_rhs)
-        else:
-            raise ValueError(f"Unknown method: {method}. Use 'etd1', 'etd2', or 'etdrk4'")
-
-        t += dt
-
-        if (step + 1) % save_every == 0:
-            t_history.append(t)
-            state_history.append(state)
+    for s in save_steps:
+        t_history.append(t_start + (s + 1) * dt)
+        state_history.append(state_after(s))
 
     return jnp.array(t_history), state_history
 

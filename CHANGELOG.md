@@ -2,6 +2,62 @@
 
 All notable changes to moljax are documented here.
 
+## [1.1.1] - 2026-08-03
+
+### Fixed
+
+- **`etd_integrate` now compiles its time-stepping loop.** It previously
+  stepped through an eager Python `for` loop, so every step paid full
+  XLA dispatch. Long integrations were pathologically slow: a 3,276-step
+  ETDRK4 run took 41 s, and the NILT-bridge comparison tests built on it
+  ran for many minutes to hours.
+
+  Stepping now runs inside `lax.fori_loop` when only the endpoint is
+  retained and `lax.scan` when intermediate states are saved. The method
+  dispatch is hoisted out of the loop; ETD2's first step is still taken
+  eagerly because it seeds the `N_prev` term from `None`.
+
+  Output is bit-identical to the previous implementation, verified across
+  all three methods and seven `save_every` / step-count combinations.
+  `tests/test_fft_nilt_bridge.py` went from hanging past 900 s to passing
+  in 87 s.
+
+- `compare_nilt_vs_timestepping` requested every intermediate state and
+  then used only the last one, which for long horizons on fine grids
+  allocated hundreds of MB it immediately discarded. It now retains only
+  the endpoint, and calls `block_until_ready` so its reported timings
+  are not measuring asynchronous dispatch.
+
+- **Table 3 had archived data but no script to regenerate it.** No file
+  in the repository produced the four-column CuPy / nvmath / JAX
+  comparison; `benchmark_cupy_fft.py` covers only CuPy versus JAX. Adds
+  `benchmarks/benchmark_fft_3lib.py`, which regenerates
+  `results/fft_3lib_comparison.json`. CuPy and nvmath are optional; a
+  missing library yields a null column instead of aborting.
+
+  On the current stack (nvmath 1.0.0, JAX 0.9.1 rather than the paper's
+  0.8/0.8.2) the regenerated values track the published ones at 256²,
+  512² and 1024². They differ at 64² and 128², where the measurement is
+  launch-latency dominated and the paper reports interquartile ranges as
+  large as the medians. The table's conclusion is unaffected: JAX inside
+  a compiled loop is competitive with CuPy, so the speedups are
+  algorithmic rather than kernel-level.
+
+### Changed
+
+- The two NILT-bridge tests marked `slow` in 1.1.0 are no longer slow and
+  run by default again. `pytest` no longer deselects `slow` tests; the
+  marker remains registered for the pre-existing one in
+  `test_option_a_vs_b.py`, which also runs by default again.
+
+### Known issues
+
+- `compare_nilt_vs_timestepping` reports `tss_steps` from
+  `ceil(t_end / dt)` while `etd_integrate` floors internally, so it
+  integrates to `floor(t_end/dt) * dt` rather than exactly `t_end`. This
+  is pre-existing and accounts for the residual ~9e-5 relative error in
+  the time-stepping leg of an otherwise exact linear propagation.
+
 ## [1.1.0] - 2026-08-03
 
 Reproducibility release. Brings the public repository in line with the
