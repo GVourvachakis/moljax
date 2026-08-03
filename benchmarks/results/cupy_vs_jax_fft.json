@@ -1,0 +1,117 @@
+{
+  "fft2": {
+    "64": {
+      "jax_median_ms": 0.41179000027113943,
+      "jax_iqr_ms": 0.8923087499397298,
+      "cupy_median_ms": 0.06990649990257225,
+      "cupy_iqr_ms": 0.02397474986537418,
+      "ratio_jax_over_cupy": 5.890582432893159
+    },
+    "128": {
+      "jax_median_ms": 0.4527189998952963,
+      "jax_iqr_ms": 0.9296387501080972,
+      "cupy_median_ms": 0.13457599993671465,
+      "cupy_iqr_ms": 0.006566499905602541,
+      "ratio_jax_over_cupy": 3.3640396512616717
+    },
+    "256": {
+      "jax_median_ms": 1.2525274999006797,
+      "jax_iqr_ms": 1.0443847501164782,
+      "cupy_median_ms": 0.0886805000845925,
+      "cupy_iqr_ms": 0.013778249922324903,
+      "ratio_jax_over_cupy": 14.124046421771318
+    },
+    "512": {
+      "jax_median_ms": 1.2963140000010753,
+      "jax_iqr_ms": 0.09491849959886167,
+      "cupy_median_ms": 0.1937290003297676,
+      "cupy_iqr_ms": 0.004117499997846608,
+      "ratio_jax_over_cupy": 6.691378150893649
+    },
+    "1024": {
+      "jax_median_ms": 1.2865035000686476,
+      "jax_iqr_ms": 0.06589999998141138,
+      "cupy_median_ms": 0.7725504999598343,
+      "cupy_iqr_ms": 0.01688274994648964,
+      "ratio_jax_over_cupy": 1.6652678370352931
+    }
+  },
+  "rfft2": {
+    "64": {
+      "jax_median_ms": 0.39740550005262776,
+      "jax_iqr_ms": 0.9867372498320037,
+      "cupy_median_ms": 0.04321750020608306,
+      "cupy_iqr_ms": 0.005623500328511,
+      "ratio_jax_over_cupy": 9.195476326895259
+    },
+    "128": {
+      "jax_median_ms": 0.3608844999689609,
+      "jax_iqr_ms": 0.9950807501581949,
+      "cupy_median_ms": 0.0951565000377741,
+      "cupy_iqr_ms": 0.029280500257300446,
+      "ratio_jax_over_cupy": 3.7925365038195107
+    },
+    "256": {
+      "jax_median_ms": 1.211222000165435,
+      "jax_iqr_ms": 0.7109489997674245,
+      "cupy_median_ms": 0.08920599998418766,
+      "cupy_iqr_ms": 0.013058500258011918,
+      "ratio_jax_over_cupy": 13.577808671839698
+    },
+    "512": {
+      "jax_median_ms": 1.283284500004811,
+      "jax_iqr_ms": 0.07652900001176022,
+      "cupy_median_ms": 0.1562984998599859,
+      "cupy_iqr_ms": 0.0060692499346259865,
+      "ratio_jax_over_cupy": 8.210472276793398
+    },
+    "1024": {
+      "jax_median_ms": 1.253727999937837,
+      "jax_iqr_ms": 0.08744325009502063,
+      "cupy_median_ms": 0.537591500005874,
+      "cupy_iqr_ms": 0.0137650001761358,
+      "ratio_jax_over_cupy": 2.3321202063725677
+    }
+  },
+  "fft2_jit_amortized": {
+    "64": {
+      "jax_jit_amortized_median_ms": 0.07513020999795117,
+      "jax_jit_amortized_iqr_ms": 0.1078178074965308,
+      "ratio_jit_over_cupy": 1.0747242402732098
+    },
+    "128": {
+      "jax_jit_amortized_median_ms": 0.07455096500052605,
+      "jax_jit_amortized_iqr_ms": 0.002982844999905865,
+      "ratio_jit_over_cupy": 0.5539692444089896
+    },
+    "256": {
+      "jax_jit_amortized_median_ms": 0.11912519500128838,
+      "jax_jit_amortized_iqr_ms": 0.003827567502412421,
+      "ratio_jit_over_cupy": 1.3433076593800737
+    },
+    "512": {
+      "jax_jit_amortized_median_ms": 0.3324265950004701,
+      "jax_jit_amortized_iqr_ms": 0.005021797501285619,
+      "ratio_jit_over_cupy": 1.7159361501613595
+    },
+    "1024": {
+      "jax_jit_amortized_median_ms": 1.4083818150015759,
+      "jax_jit_amortized_iqr_ms": 0.00953018499785685,
+      "ratio_jit_over_cupy": 1.8230288053335013
+    }
+  },
+  "config": {
+    "grid_sizes": [
+      64,
+      128,
+      256,
+      512,
+      1024
+    ],
+    "n_reps": 100,
+    "dtype": "float64",
+    "jax_version": "0.8.2",
+    "cupy_version": "14.0.1",
+    "gpu": "cuda:0"
+  }
+}

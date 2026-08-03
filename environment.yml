@@ -1,6 +1,29 @@
-# MOL-JAX Environment for SISC Paper Reproducibility
-# Create with: conda env create -f environment.yml
+# moljax reproducibility environment
+#
+# Matches the software stack reported in Section 5.1.1 of
+#   Pavlov, G. "moljax: GPU-accelerated method of lines for stiff
+#   reaction-diffusion PDEs with FFT preconditioning."
+#   Computer Physics Communications 326 (2026) 110205.
+#   doi:10.1016/j.cpc.2026.110205
+# namely JAX 0.8.2, CuPy 14.0, nvmath-python 0.8, Python 3.12, CUDA 13.0.
+#
+# Note: the paper's Code and Data Availability section quotes an older
+# pin (JAX 0.4.25, CUDA 12.3) that predates the final benchmark runs.
+# The versions below are the ones the published timings were produced
+# with, and are required for the GPU FFT baseline of Table 3, which
+# needs CuPy and nvmath-python. See REPRODUCE.md.
+#
+# This file is the reproducibility contract: it pins the versions the
+# published timings were produced with. It is deliberately NOT tracked
+# forward as dependencies move. For the stack moljax is currently
+# developed and tested against, see environment-current.yml.
+#
+# Create with:   conda env create -f environment.yml
 # Activate with: conda activate moljax
+#
+# CPU-only reproduction: replace the jax[cuda13] pin below with a plain
+# `jax==0.8.2`. The CuPy and nvmath GPU FFT baseline (Table 3) is
+# GPU-only and will be skipped.
 
 name: moljax
 
@@ -11,23 +34,14 @@ channels:
 
 dependencies:
   # Python
-  - python=3.11
+  - python=3.12
 
   # Core scientific stack
-  - numpy>=1.24.0
+  - numpy>=1.26.0
   - scipy>=1.11.0
   - matplotlib>=3.7.0
 
-  # JAX with CUDA support
-  - pip
-  - pip:
-    - jax[cuda12]==0.4.25
-    - jaxlib==0.4.25+cuda12.cudnn89
-    - optax>=0.1.7
-    - equinox>=0.11.0
-    - diffrax>=0.5.0
-
-  # Testing and benchmarking
+  # Testing
   - pytest>=7.0.0
   - pytest-benchmark>=4.0.0
 
@@ -35,7 +49,16 @@ dependencies:
   - jupyter>=1.0.0
   - ipykernel>=6.0.0
 
-# For CPU-only installation, replace pip section with:
-# - pip:
-#   - jax>=0.4.25
-#   - jaxlib>=0.4.25
+  - pip
+  - pip:
+    # JAX with CUDA 13 support (primary backend)
+    - jax[cuda13]==0.8.2
+
+    # GPU FFT baseline comparison (paper Table 3, Section 5.1.4)
+    - cupy-cuda13x==14.0.0
+    - nvmath-python==0.8.0
+
+    # Comparison library (paper Sections 5.2.5, 5.9)
+    - diffrax>=0.5.0
+    - equinox>=0.11.0
+    - optax>=0.1.7

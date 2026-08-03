@@ -5,12 +5,28 @@ This document provides instructions for reproducing the benchmarks in the moljax
 ## System Requirements
 
 ### Tested Configuration (Paper Results)
+
+Matching Section 5.1.1 of the paper:
+
 - **GPU**: NVIDIA GeForce RTX 5060 (8 GB VRAM)
 - **CPU**: Intel Core Ultra 5 225F
 - **RAM**: 32 GB
 - **Python**: 3.12
-- **JAX**: 0.4.35 with CUDA 12.x
-- **OS**: Ubuntu 22.04 (WSL2)
+- **JAX**: 0.8.2
+- **CuPy**: 14.0, **nvmath-python**: 0.8
+- **CUDA**: 13.0
+- **OS**: Ubuntu 24.04 (WSL2), Linux 6.6.87
+
+> **Note on versions.** The paper's Code and Data Availability section
+> quotes an older pin (JAX 0.4.25, CUDA 12.3) that predates the final
+> benchmark runs. The versions listed above are the ones the published
+> timings were produced with, and CuPy plus nvmath-python are required
+> for the GPU FFT baseline of Table 3. `environment.yml` reflects the
+> versions above.
+>
+> `environment-current.yml` tracks the stack moljax is currently
+> developed against (JAX 0.9.1, CuPy 14.0.1, no nvmath). Use it to *use*
+> the library; use `environment.yml` to *reproduce the paper*.
 
 ### Minimum Requirements
 - NVIDIA GPU with CUDA support (8+ GB VRAM recommended)
@@ -25,27 +41,61 @@ git clone https://github.com/gogipav14/moljax.git
 cd moljax
 
 # Option 1: Using conda (recommended)
-conda env create -f environment.yml
+conda env create -f environment.yml     # paper-exact pins
 conda activate moljax
 
 # Option 2: Using pip
 python -m venv venv
 source venv/bin/activate
-pip install jax[cuda12] numpy scipy matplotlib diffrax
+pip install "jax[cuda13]==0.8.2" numpy scipy matplotlib diffrax
+pip install cupy-cuda13x==14.0.0 nvmath-python==0.8.0   # for Table 3 only
 
 # Install moljax
 pip install -e .
 ```
 
-## Quick Start: One-Script Reproduction
+## Quick Start: Reproduction
+
+The three commands quoted in the paper:
 
 ```bash
-# Reproduce ALL paper results with one command (~60-90 min on GPU)
-./reproduce_paper.sh
-
-# Quick validation (~5 min, fewer reps)
-./reproduce_paper.sh --quick
+conda env create -f environment.yml && conda activate moljax
+bash benchmarks/run_all.sh          # ~30 min on RTX 5060
+python benchmarks/plot_main_figures.py
 ```
+
+`run_all.sh` writes every table's raw data to `benchmarks/results/*.json`.
+`plot_main_figures.py` produces every figure. Useful switches:
+
+```bash
+SKIP_SLOW=1 bash benchmarks/run_all.sh        # omit the multi-hour stages
+PYTHON=python3.12 bash benchmarks/run_all.sh  # choose the interpreter
+python benchmarks/plot_main_figures.py --list       # what would run
+python benchmarks/plot_main_figures.py --skip-slow  # fast figures only
+```
+
+CPU-only reproduction takes roughly 3-4 hours. The CuPy and nvmath GPU
+FFT baseline (Table 3) is GPU-only and is skipped without them.
+
+The older `./reproduce_paper.sh` entry point still works, and
+`benchmarks/run_all_benchmarks.sh` now forwards to `run_all.sh`.
+
+## Test Suite
+
+```bash
+pytest                # standard suite (~6 min on RTX 5060)
+pytest -m slow        # only the slow tests
+pytest -m ""          # everything
+```
+
+Three tests are marked `slow` and deselected by default. Two of them
+(`test_fft_nilt_bridge.py::TestNILTAccuracy::test_nilt_vs_timestepping_agreement`
+and `TestQuantitativeResults::test_error_table_nilt_vs_tss`) exercise
+`compare_nilt_vs_timestepping`, which selects `tss_dt = 0.1 / rho` and
+therefore integrates tens of thousands of ETDRK4 steps through an eager
+Python loop. They run for many minutes to hours. This is a performance
+property of the eager integration path, not a correctness failure; the
+paper's benchmarks use the JIT-compiled path and are unaffected.
 
 ## Running Benchmarks Individually
 

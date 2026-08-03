@@ -1,0 +1,58 @@
+# moljax current working environment
+#
+# This is the stack moljax is actively developed and tested against, as
+# opposed to environment.yml, which pins the exact versions used to
+# produce the published benchmark numbers.
+#
+# Use this file if you want to *use* the library.
+# Use environment.yml if you want to *reproduce the paper's timings*.
+#
+# Verified on 2026-08-03:
+#   Python 3.12.3, JAX/jaxlib 0.9.1, CuPy 14.0.1, diffrax 0.7.0,
+#   NumPy 2.4.3, SciPy 1.17.1, matplotlib 3.10.6, pytest 9.0.2,
+#   CUDA 13.0.88, driver 610.88, NVIDIA GeForce RTX 5060, WSL2.
+#
+# Differences from the published stack (see environment.yml):
+#   JAX 0.8.2 -> 0.9.1
+#   nvmath-python 0.8 is NOT included here. It is required only for the
+#   third column of Table 3 (the nvmath GPU FFT baseline). Without it,
+#   benchmark_cupy_fft.py still reports the CuPy and JAX figures and
+#   skips the nvmath row.
+#
+# Create with:   conda env create -f environment-current.yml
+# Activate with: conda activate moljax-current
+
+name: moljax-current
+
+channels:
+  - conda-forge
+  - nvidia
+  - defaults
+
+dependencies:
+  - python=3.12
+
+  # Core scientific stack
+  - numpy>=2.4
+  - scipy>=1.17
+  - matplotlib>=3.10
+
+  # Testing
+  - pytest>=9.0
+  - pytest-benchmark>=4.0.0
+
+  - pip
+  - pip:
+    # JAX with CUDA 13 support (primary backend)
+    - jax[cuda13]==0.9.1
+
+    # GPU FFT baseline comparison (CuPy leg of Table 3)
+    - cupy-cuda13x==14.0.1
+
+    # Comparison library (paper Sections 5.2.5, 5.9)
+    - diffrax==0.7.0
+    - equinox==0.13.2
+    - optax==0.2.5
+
+    # Optional: uncomment to restore the nvmath leg of Table 3
+    # - nvmath-python==0.8.0

@@ -1,0 +1,55 @@
+{
+  "methods": [
+    {
+      "name": "RK4 (explicit)",
+      "time_s": 2033794.365938602,
+      "iqr_s": 19710.7425872379,
+      "steps": 2053379029,
+      "dt": 4.8700214915979604e-08,
+      "t_final": 100.0,
+      "extrapolated": true,
+      "measured_steps": 1000,
+      "measured_time_s": 0.99046222700008,
+      "per_step_s": 0.00099046222700008
+    },
+    {
+      "name": "CN (Newton-Krylov)",
+      "time_s": 10.769380502000331,
+      "iqr_s": 0.7404367989997809,
+      "steps": 10000,
+      "dt": 0.01,
+      "t_final": 100.0
+    },
+    {
+      "name": "IMEX-Strang",
+      "time_s": 3.1464904370000113,
+      "iqr_s": 0.04273736699997244,
+      "steps": 10000,
+      "dt": 0.01,
+      "t_final": 100.0
+    },
+    {
+      "name": "ETDRK4",
+      "time_s": 10.71382684199989,
+      "iqr_s": 0.1382835630001864,
+      "steps": 10000,
+      "dt": 0.01,
+      "t_final": 100.0
+    }
+  ],
+  "config": {
+    "N": 256,
+    "Du": 1.0,
+    "Dv": 40.0,
+    "a": 0.1,
+    "b": 0.9,
+    "gamma": 1000.0,
+    "L": 1.0,
+    "t_final": 100.0,
+    "n_reps": 5,
+    "dtype": "float64",
+    "device": "cuda:0",
+    "laplacian": "pseudo-spectral (-k^2)",
+    "system": "Schnakenberg"
+  }
+}

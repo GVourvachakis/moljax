@@ -1,0 +1,45 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite both the software and the paper."
+title: moljax
+abstract: >-
+  An open-source JAX library for GPU-accelerated method-of-lines
+  simulation of stiff reaction-diffusion PDEs on structured grids,
+  combining JIT-compiled adaptive time stepping, matrix-free
+  Newton-Krylov solvers with automatic differentiation, and FFT/DST/DCT
+  spectral operators with physics-aware preconditioning.
+type: software
+authors:
+  - family-names: Pavlov
+    given-names: Gorgi
+    orcid: "https://orcid.org/0000-0003-3205-6909"
+    email: gop214@lehigh.edu
+    affiliation: >-
+      Lehigh University, Department of Chemical and Biomolecular
+      Engineering & Bioengineering
+version: 1.1.0
+date-released: "2026-08-03"
+license: MIT
+repository-code: "https://github.com/gogipav14/moljax"
+keywords:
+  - method of lines
+  - adaptive time stepping
+  - Newton-Krylov
+  - automatic differentiation
+  - FFT preconditioning
+  - GPU acceleration
+  - JAX
+  - stiff PDEs
+preferred-citation:
+  type: article
+  title: >-
+    moljax: GPU-accelerated method of lines for stiff reaction-diffusion
+    PDEs with FFT preconditioning
+  authors:
+    - family-names: Pavlov
+      given-names: Gorgi
+      orcid: "https://orcid.org/0000-0003-3205-6909"
+  journal: Computer Physics Communications
+  volume: 326
+  start: 110205
+  year: 2026
+  doi: 10.1016/j.cpc.2026.110205

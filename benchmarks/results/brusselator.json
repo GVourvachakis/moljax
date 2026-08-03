@@ -1,0 +1,55 @@
+{
+  "methods": [
+    {
+      "name": "RK4 (explicit)",
+      "time_s": 513.8277460445947,
+      "iqr_s": 4.93774481628285,
+      "steps": 513345,
+      "dt": 9.740042983195922e-05,
+      "t_final": 50.0,
+      "extrapolated": true,
+      "measured_steps": 5000,
+      "measured_time_s": 5.004701965000095,
+      "per_step_s": 0.0010009403930000189
+    },
+    {
+      "name": "CN (Newton-Krylov)",
+      "time_s": 5.631604234999941,
+      "iqr_s": 0.20820627399962177,
+      "steps": 1000,
+      "dt": 0.05,
+      "t_final": 50.0
+    },
+    {
+      "name": "IMEX-Strang",
+      "time_s": 0.3172319020000032,
+      "iqr_s": 0.005200423000133014,
+      "steps": 1000,
+      "dt": 0.05,
+      "t_final": 50.0
+    },
+    {
+      "name": "ETDRK4",
+      "time_s": 1.0807514240000273,
+      "iqr_s": 0.020874422999895614,
+      "steps": 1000,
+      "dt": 0.05,
+      "t_final": 50.0
+    }
+  ],
+  "config": {
+    "N": 256,
+    "Du": 0.01,
+    "Dv": 0.02,
+    "a": 1.0,
+    "b": 3.4,
+    "L": 1.0,
+    "t_final": 50.0,
+    "hopf_threshold": 2.0,
+    "n_reps": 5,
+    "dtype": "float64",
+    "device": "cuda:0",
+    "laplacian": "pseudo-spectral (-k^2)",
+    "system": "Brusselator"
+  }
+}

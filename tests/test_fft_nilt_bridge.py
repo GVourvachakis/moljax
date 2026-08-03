@@ -180,8 +180,18 @@ class TestNILTAccuracy:
         rel_error = float(jnp.linalg.norm(u_nilt - u_exact) / jnp.linalg.norm(u_exact))
         assert rel_error < 1e-4, f"NILT error {rel_error:.2e} exceeds 1e-4 threshold"
 
+    @pytest.mark.slow
     def test_nilt_vs_timestepping_agreement(self, grid_128):
-        """NILT and time-stepping should agree for linear PDE."""
+        """NILT and time-stepping should agree for linear PDE.
+
+        Marked slow: ``compare_nilt_vs_timestepping`` selects
+        ``tss_dt = 0.1 / rho``, which is ~6e-5 for this operator, so each
+        integration is ~8,000 ETDRK4 steps and the call performs
+        1 warmup + 3 timed integrations. ``etd_integrate`` steps in an
+        eager Python loop, so every step pays full XLA dispatch and the
+        test runs well past 15 minutes. This is a performance property of
+        the eager integration path, not a correctness failure.
+        """
         D = 0.01
         t_end = 0.5
 
@@ -322,10 +332,17 @@ class TestSpectralGuardrails:
 class TestQuantitativeResults:
     """Generate quantitative results for documentation."""
 
+    @pytest.mark.slow
     def test_error_table_nilt_vs_tss(self, grid_256):
         """Generate error table: NILT vs Time-Stepping.
 
         | t_end | NILT Error | TSS Error | NILT ms | TSS ms | Speedup |
+
+        Marked slow for the same reason as
+        ``TestNILTAccuracy::test_nilt_vs_timestepping_agreement``, and
+        considerably worse: this sweeps four horizons with 2 warmup +
+        5 timed integrations each, on a 256-point grid where ``tss_dt``
+        is four times smaller again. Expect hours, not minutes.
         """
         D = 0.01
         op = DiffusionOperator(grid_256, D)

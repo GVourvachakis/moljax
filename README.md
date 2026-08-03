@@ -3,21 +3,30 @@
 **GPU-Portable Adaptive Method-of-Lines in JAX via AD-JVP Newton-Krylov and Spectral/FFT Operators**
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![JAX](https://img.shields.io/badge/JAX-0.4.25+-green.svg)](https://github.com/google/jax)
+[![JAX](https://img.shields.io/badge/JAX-0.8.2+-green.svg)](https://github.com/google/jax)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![DOI](https://img.shields.io/badge/DOI-10.1016%2Fj.cpc.2026.110205-blue.svg)](https://doi.org/10.1016/j.cpc.2026.110205)
 
 ## Paper
 
-This repository accompanies the paper:
+This repository accompanies:
 
-> **Accelerating Stiff Reaction-Diffusion Simulation: GPU Method of Lines with FFT Preconditioning in JAX**
-> Gorgi Pavlov. Submitted to *Journal of Computational Physics*.
+> **moljax: GPU-accelerated method of lines for stiff reaction-diffusion PDEs with FFT preconditioning**
+> Gorgi Pavlov. *Computer Physics Communications* **326** (2026) 110205.
+> [doi:10.1016/j.cpc.2026.110205](https://doi.org/10.1016/j.cpc.2026.110205)
 
-To reproduce all paper results with a single command:
+The published results correspond to release `v1.0.0` (commit `25cd9a3`).
+To reproduce them:
+
 ```bash
-./reproduce_paper.sh
+conda env create -f environment.yml && conda activate moljax
+bash benchmarks/run_all.sh          # ~30 min on RTX 5060
+python benchmarks/plot_main_figures.py
 ```
-See [REPRODUCE.md](REPRODUCE.md) for detailed instructions.
+
+See [REPRODUCE.md](REPRODUCE.md) for details, including the CPU-only path.
+If you just want to *use* the library rather than reproduce the paper, use
+`environment-current.yml`, which tracks the current dependency stack.
 
 ---
 

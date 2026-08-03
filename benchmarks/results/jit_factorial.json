@@ -1,0 +1,48 @@
+{
+  "numpy_cpu": {
+    "median_s": 1.132322024999894,
+    "iqr_s": 0.15118046450004385
+  },
+  "jax_cpu_eager": {
+    "median_s": 1.717440718500029,
+    "iqr_s": 0.5915694520000443,
+    "compile_s": null,
+    "ms_per_step": 1.717440718500029
+  },
+  "jax_cpu_jit": {
+    "median_s": 0.7252205400000094,
+    "iqr_s": 0.022491172749596444,
+    "compile_s": 0.8002439589999994,
+    "ms_per_step": 0.7252205400000094
+  },
+  "jax_gpu_eager": {
+    "median_s": 0.8554704099999526,
+    "iqr_s": 0.07219354400001521,
+    "compile_s": null,
+    "ms_per_step": 0.8554704099999526
+  },
+  "jax_gpu_jit": {
+    "median_s": 0.2599705674999768,
+    "iqr_s": 0.019729436999796235,
+    "compile_s": 0.33183847199961747,
+    "ms_per_step": 0.2599705674999768
+  },
+  "factors": {
+    "jit_factor_cpu": 2.368163370689979,
+    "jit_factor_gpu": 3.2906433148438192,
+    "gpu_factor_eager": 2.007598040124058,
+    "gpu_factor_jit": 2.789625560209134,
+    "vs_numpy": 4.355577771318266
+  },
+  "config": {
+    "grid_size": 256,
+    "n_steps": 1000,
+    "n_reps": 100,
+    "D": 0.01,
+    "dt": 0.0001,
+    "dtype": "float64",
+    "jax_version": "0.8.2",
+    "gpu": "cuda:0",
+    "cpu": "TFRT_CPU_0"
+  }
+}

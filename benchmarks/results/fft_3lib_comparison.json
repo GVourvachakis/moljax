@@ -1,0 +1,92 @@
+{
+  "64": {
+    "cupy": {
+      "median_ms": 0.067,
+      "iqr_ms": 0.017
+    },
+    "nvmath": {
+      "median_ms": 0.937,
+      "iqr_ms": 0.102
+    },
+    "jax_eager": {
+      "median_ms": 0.351,
+      "iqr_ms": 0.976
+    },
+    "jax_jit": {
+      "median_ms": 0.104,
+      "iqr_ms": 0.099
+    }
+  },
+  "128": {
+    "cupy": {
+      "median_ms": 0.06,
+      "iqr_ms": 0.024
+    },
+    "nvmath": {
+      "median_ms": 0.924,
+      "iqr_ms": 0.379
+    },
+    "jax_eager": {
+      "median_ms": 0.252,
+      "iqr_ms": 0.036
+    },
+    "jax_jit": {
+      "median_ms": 0.089,
+      "iqr_ms": 0.099
+    }
+  },
+  "256": {
+    "cupy": {
+      "median_ms": 0.163,
+      "iqr_ms": 0.01
+    },
+    "nvmath": {
+      "median_ms": 0.727,
+      "iqr_ms": 0.414
+    },
+    "jax_eager": {
+      "median_ms": 1.302,
+      "iqr_ms": 0.112
+    },
+    "jax_jit": {
+      "median_ms": 0.116,
+      "iqr_ms": 0.004
+    }
+  },
+  "512": {
+    "cupy": {
+      "median_ms": 0.233,
+      "iqr_ms": 0.008
+    },
+    "nvmath": {
+      "median_ms": 0.752,
+      "iqr_ms": 0.209
+    },
+    "jax_eager": {
+      "median_ms": 1.289,
+      "iqr_ms": 0.1
+    },
+    "jax_jit": {
+      "median_ms": 0.318,
+      "iqr_ms": 0.006
+    }
+  },
+  "1024": {
+    "cupy": {
+      "median_ms": 0.741,
+      "iqr_ms": 0.06
+    },
+    "nvmath": {
+      "median_ms": 1.27,
+      "iqr_ms": 0.11
+    },
+    "jax_eager": {
+      "median_ms": 1.174,
+      "iqr_ms": 0.029
+    },
+    "jax_jit": {
+      "median_ms": 1.396,
+      "iqr_ms": 0.029
+    }
+  }
+}
