@@ -94,7 +94,7 @@ def etd1_kernel_2d(
     eigenvalues: jnp.ndarray,
     dt: float,
 ) -> jnp.ndarray:
-    """JIT-compiled ETD1 kernel for 2D fields."""
+    """JIT-compiled ETD1 kernel for 2D fields (full fft2)."""
     z = dt * eigenvalues
     exp_z = jnp.exp(z)
     phi1_z = phi1(z)
@@ -104,6 +104,26 @@ def etd1_kernel_2d(
 
     u_new_hat = exp_z * u_hat + dt * phi1_z * N_hat
     return jnp.real(jnp.fft.ifft2(u_new_hat))
+
+
+@jax.jit
+def etd1_kernel_2d_rfft(
+    u: jnp.ndarray,
+    N: jnp.ndarray,
+    eigenvalues: jnp.ndarray,
+    dt: float,
+) -> jnp.ndarray:
+    """JIT-compiled ETD1 kernel for 2D fields using rfft2 (real fields)."""
+    ny, nx = u.shape
+    z = dt * eigenvalues
+    exp_z = jnp.exp(z)
+    phi1_z = phi1(z)
+
+    u_hat = jnp.fft.rfft2(u)
+    N_hat = jnp.fft.rfft2(N)
+
+    u_new_hat = exp_z * u_hat + dt * phi1_z * N_hat
+    return jnp.fft.irfft2(u_new_hat, s=(ny, nx))
 
 
 @jax.jit
@@ -205,6 +225,21 @@ def helmholtz_solve_2d(
     denom = 1.0 - dt * D * laplacian_symbol
     u_hat = rhs_hat / denom
     return jnp.real(jnp.fft.ifft2(u_hat))
+
+
+@jax.jit
+def helmholtz_solve_2d_rfft(
+    rhs: jnp.ndarray,
+    laplacian_symbol: jnp.ndarray,
+    dt: float,
+    D: float,
+) -> jnp.ndarray:
+    """JIT-compiled 2D Helmholtz solve using rfft2 (real fields)."""
+    ny, nx = rhs.shape
+    rhs_hat = jnp.fft.rfft2(rhs)
+    denom = 1.0 - dt * D * laplacian_symbol
+    u_hat = rhs_hat / denom
+    return jnp.fft.irfft2(u_hat, s=(ny, nx))
 
 
 @jax.jit
@@ -508,6 +543,36 @@ def batched_etd1_kernel_2d(
 
 
 @jax.jit
+def batched_etd1_kernel_2d_rfft(
+    u_stack: jnp.ndarray,
+    N_stack: jnp.ndarray,
+    eigenvalues: jnp.ndarray,
+    dt: float,
+) -> jnp.ndarray:
+    """Batched 2D ETD1 kernel using rfft2 (real fields).
+
+    Args:
+        u_stack: Shape (n_fields, ny, nx)
+        N_stack: Shape (n_fields, ny, nx)
+        eigenvalues: Shape (ny, nx//2+1) - rfft eigenvalues
+        dt: Time step
+
+    Returns:
+        Updated field stack of shape (n_fields, ny, nx)
+    """
+    spatial_shape = u_stack.shape[-2:]
+    z = dt * eigenvalues
+    exp_z = jnp.exp(z)
+    phi1_z = phi1(z)
+
+    u_hat = jnp.fft.rfft2(u_stack, axes=(-2, -1))
+    N_hat = jnp.fft.rfft2(N_stack, axes=(-2, -1))
+
+    u_new_hat = exp_z * u_hat + dt * phi1_z * N_hat
+    return jnp.fft.irfft2(u_new_hat, s=spatial_shape, axes=(-2, -1))
+
+
+@jax.jit
 def batched_helmholtz_solve_2d(
     rhs_stack: jnp.ndarray,
     laplacian_symbol: jnp.ndarray,
@@ -529,6 +594,31 @@ def batched_helmholtz_solve_2d(
     denom = 1.0 - dt * D * laplacian_symbol
     u_hat = rhs_hat / denom
     return jnp.real(jnp.fft.ifft2(u_hat, axes=(-2, -1)))
+
+
+@jax.jit
+def batched_helmholtz_solve_2d_rfft(
+    rhs_stack: jnp.ndarray,
+    laplacian_symbol: jnp.ndarray,
+    dt: float,
+    D: float,
+) -> jnp.ndarray:
+    """Batched 2D Helmholtz solve using rfft2 (real fields).
+
+    Args:
+        rhs_stack: Shape (n_fields, ny, nx)
+        laplacian_symbol: Shape (ny, nx//2+1) - rfft laplacian symbol
+        dt: Time step
+        D: Diffusion coefficient
+
+    Returns:
+        Solution stack of shape (n_fields, ny, nx)
+    """
+    spatial_shape = rhs_stack.shape[-2:]
+    rhs_hat = jnp.fft.rfft2(rhs_stack, axes=(-2, -1))
+    denom = 1.0 - dt * D * laplacian_symbol
+    u_hat = rhs_hat / denom
+    return jnp.fft.irfft2(u_hat, s=spatial_shape, axes=(-2, -1))
 
 
 # =============================================================================

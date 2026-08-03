@@ -156,6 +156,7 @@ def etd1_step(
             phi1 = _phi1(z)
 
             # FFT of current state and nonlinear term
+            is_rfft = getattr(op, '_is_rfft', False)
             if u_field.ndim == 1:
                 u_hat = jnp.fft.fft(u_field)
                 N_hat = jnp.fft.fft(N_state[name])
@@ -163,6 +164,13 @@ def etd1_step(
                 # ETD1 update in Fourier space
                 u_new_hat = exp_z * u_hat + dt * phi1 * N_hat
                 result[name] = jnp.real(jnp.fft.ifft(u_new_hat))
+            elif is_rfft:
+                ny, nx = u_field.shape
+                u_hat = jnp.fft.rfft2(u_field)
+                N_hat = jnp.fft.rfft2(N_state[name])
+
+                u_new_hat = exp_z * u_hat + dt * phi1 * N_hat
+                result[name] = jnp.fft.irfft2(u_new_hat, s=(ny, nx))
             else:
                 u_hat = jnp.fft.fft2(u_field)
                 N_hat = jnp.fft.fft2(N_state[name])
@@ -223,6 +231,7 @@ def etd2_step(
             N_n = N_curr[name]
             N_nm1 = N_prev[name]
 
+            is_rfft = getattr(op, '_is_rfft', False)
             if u_field.ndim == 1:
                 u_hat = jnp.fft.fft(u_field)
                 N_n_hat = jnp.fft.fft(N_n)
@@ -233,6 +242,16 @@ def etd2_step(
                             + dt * phi1 * N_n_hat
                             + dt * phi2 * (N_n_hat - N_nm1_hat))
                 result[name] = jnp.real(jnp.fft.ifft(u_new_hat))
+            elif is_rfft:
+                ny, nx = u_field.shape
+                u_hat = jnp.fft.rfft2(u_field)
+                N_n_hat = jnp.fft.rfft2(N_n)
+                N_nm1_hat = jnp.fft.rfft2(N_nm1)
+
+                u_new_hat = (exp_z * u_hat
+                            + dt * phi1 * N_n_hat
+                            + dt * phi2 * (N_n_hat - N_nm1_hat))
+                result[name] = jnp.fft.irfft2(u_new_hat, s=(ny, nx))
             else:
                 u_hat = jnp.fft.fft2(u_field)
                 N_n_hat = jnp.fft.fft2(N_n)
@@ -293,19 +312,24 @@ def etdrk4_step(
             # Get ETDRK4 coefficients
             E, E2, phi1_z2, phi1_z, b1, b2, b3, b4 = _etdrk4_coefficients(z)
 
+            is_rfft = getattr(op, '_is_rfft', False)
             if u_field.ndim == 1:
                 fft_func = jnp.fft.fft
-                ifft_func = jnp.fft.ifft
+                ifft_func = lambda x: jnp.real(jnp.fft.ifft(x))
+            elif is_rfft:
+                ny, nx = u_field.shape
+                fft_func = jnp.fft.rfft2
+                ifft_func = lambda x: jnp.fft.irfft2(x, s=(ny, nx))
             else:
                 fft_func = jnp.fft.fft2
-                ifft_func = jnp.fft.ifft2
+                ifft_func = lambda x: jnp.real(jnp.fft.ifft2(x))
 
             u_hat = fft_func(u_field)
             N_n_hat = fft_func(N_n[name])
 
             # Stage a: half step
             a_hat = E2 * u_hat + (dt/2) * phi1_z2 * N_n_hat
-            a_field = jnp.real(ifft_func(a_hat))
+            a_field = ifft_func(a_hat)
 
             # Evaluate N(a)
             N_a = nonlinear_rhs({name: a_field}, t + dt/2)[name]
@@ -313,7 +337,7 @@ def etdrk4_step(
 
             # Stage b: another half step starting from u_n
             b_hat = E2 * u_hat + (dt/2) * phi1_z2 * N_a_hat
-            b_field = jnp.real(ifft_func(b_hat))
+            b_field = ifft_func(b_hat)
 
             # Evaluate N(b)
             N_b = nonlinear_rhs({name: b_field}, t + dt/2)[name]
@@ -321,7 +345,7 @@ def etdrk4_step(
 
             # Stage c: half step from a with modified N
             c_hat = E2 * a_hat + (dt/2) * phi1_z2 * (2*N_b_hat - N_n_hat)
-            c_field = jnp.real(ifft_func(c_hat))
+            c_field = ifft_func(c_hat)
 
             # Evaluate N(c)
             N_c = nonlinear_rhs({name: c_field}, t + dt)[name]
@@ -329,7 +353,7 @@ def etdrk4_step(
 
             # Final combination
             u_new_hat = E * u_hat + dt * (b1 * N_n_hat + b2 * (N_a_hat + N_b_hat) + b4 * N_c_hat)
-            result[name] = jnp.real(ifft_func(u_new_hat))
+            result[name] = ifft_func(u_new_hat)
         else:
             # Fallback to classical RK4 for fields without linear operator
             k1 = N_n[name]
@@ -498,10 +522,16 @@ def stacked_fft_solve_shared_op(
     lam = op.eigenvalues
     denom = 1.0 / (1.0 - dt * lam)
 
+    is_rfft = getattr(op, '_is_rfft', False)
     if rhs_stacked.ndim == 2:  # 1D fields: (n_fields, nx)
         rhs_hat = jnp.fft.fft(rhs_stacked, axis=-1)
         u_hat = denom * rhs_hat
         u_stacked = jnp.real(jnp.fft.ifft(u_hat, axis=-1))
+    elif is_rfft:  # 2D fields with rfft: (n_fields, ny, nx)
+        spatial_shape = rhs_stacked.shape[-2:]
+        rhs_hat = jnp.fft.rfft2(rhs_stacked, axes=(-2, -1))
+        u_hat = denom * rhs_hat
+        u_stacked = jnp.fft.irfft2(u_hat, s=spatial_shape, axes=(-2, -1))
     else:  # 2D fields: (n_fields, ny, nx)
         rhs_hat = jnp.fft.fft2(rhs_stacked, axes=(-2, -1))
         u_hat = denom * rhs_hat

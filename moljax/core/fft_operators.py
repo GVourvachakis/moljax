@@ -35,6 +35,7 @@ from moljax.core.fft_solvers import (
     FFTCache2D,
     create_fft_cache_1d,
     create_fft_cache_2d,
+    create_fft_cache_2d_rfft,
     build_wavenumbers_1d,
     build_wavenumbers_2d,
 )
@@ -90,6 +91,7 @@ class DiffusionOperator:
         grid: Grid1D or Grid2D instance
         D: Diffusion coefficient (must be > 0)
         dtype: Data type for computations
+        use_rfft: If True and grid is 2D, use rfft2/irfft2 (faster for real fields)
 
     Example:
         >>> grid = Grid1D.uniform(128, 0, 1)
@@ -102,6 +104,7 @@ class DiffusionOperator:
     D: float
     dtype: jnp.dtype = jnp.float64
     name: str = field(default="diffusion", repr=False)
+    use_rfft: bool = field(default=True, repr=False)
     _cache: FFTCache1D | FFTCache2D = field(init=False, repr=False, compare=False)
 
     def __post_init__(self):
@@ -110,9 +113,16 @@ class DiffusionOperator:
 
         if isinstance(self.grid, Grid1D):
             cache = create_fft_cache_1d(self.grid, self.dtype)
+        elif self.use_rfft:
+            cache = create_fft_cache_2d_rfft(self.grid, self.dtype)
         else:
             cache = create_fft_cache_2d(self.grid, self.dtype)
         object.__setattr__(self, '_cache', cache)
+
+    @property
+    def _is_rfft(self) -> bool:
+        """Whether this operator uses rfft (half-spectrum)."""
+        return getattr(self._cache, 'use_rfft', False)
 
     @property
     def eigenvalues(self) -> jnp.ndarray:
@@ -125,6 +135,11 @@ class DiffusionOperator:
             u_hat = jnp.fft.fft(u)
             Lu_hat = self.eigenvalues * u_hat
             return jnp.real(jnp.fft.ifft(Lu_hat))
+        elif self._is_rfft:
+            ny, nx = u.shape
+            u_hat = jnp.fft.rfft2(u)
+            Lu_hat = self.eigenvalues * u_hat
+            return jnp.fft.irfft2(Lu_hat, s=(ny, nx))
         else:
             u_hat = jnp.fft.fft2(u)
             Lu_hat = self.eigenvalues * u_hat
@@ -143,6 +158,11 @@ class DiffusionOperator:
             rhs_hat = jnp.fft.fft(rhs)
             u_hat = rhs_hat / denom
             return jnp.real(jnp.fft.ifft(u_hat))
+        elif self._is_rfft:
+            ny, nx = rhs.shape
+            rhs_hat = jnp.fft.rfft2(rhs)
+            u_hat = rhs_hat / denom
+            return jnp.fft.irfft2(u_hat, s=(ny, nx))
         else:
             rhs_hat = jnp.fft.fft2(rhs)
             u_hat = rhs_hat / denom
@@ -159,6 +179,11 @@ class DiffusionOperator:
             u_hat = jnp.fft.fft(u)
             u_new_hat = exp_lam * u_hat
             return jnp.real(jnp.fft.ifft(u_new_hat))
+        elif self._is_rfft:
+            ny, nx = u.shape
+            u_hat = jnp.fft.rfft2(u)
+            u_new_hat = exp_lam * u_hat
+            return jnp.fft.irfft2(u_new_hat, s=(ny, nx))
         else:
             u_hat = jnp.fft.fft2(u)
             u_new_hat = exp_lam * u_hat

@@ -677,6 +677,72 @@ def gray_scott_reaction_op() -> NonlinearOp:
     return NonlinearOp(name="gray_scott_reaction", apply=apply_reaction, dt_bound=dt_bound)
 
 
+def schnakenberg_reaction_op() -> NonlinearOp:
+    """
+    Schnakenberg reaction-diffusion reaction terms (Turing morphogenesis).
+
+    du/dt = ... + gamma * (a - u + u^2 * v)
+    dv/dt = ... + gamma * (b - u^2 * v)
+
+    Expected params:
+        'a': kinetic parameter (default 0.1)
+        'b': kinetic parameter (default 0.9)
+        'gamma': Gierer-Meinhardt scaling (default 1000)
+    """
+    def apply_reaction(state: StateDict, grid: GridType, t: float, params: Dict) -> StateDict:
+        a = params.get('a', 0.1)
+        b = params.get('b', 0.9)
+        gamma = params.get('gamma', 1000.0)
+
+        u = state['u']
+        v = state['v']
+
+        u2v = u * u * v
+
+        return {
+            'u': gamma * (a - u + u2v),
+            'v': gamma * (b - u2v)
+        }
+
+    def dt_bound(grid: GridType, state: StateDict, params: Dict) -> float:
+        gamma = params.get('gamma', 1000.0)
+        return 0.5 / (gamma + 1e-14)
+
+    return NonlinearOp(name="schnakenberg_reaction", apply=apply_reaction, dt_bound=dt_bound)
+
+
+def brusselator_reaction_op() -> NonlinearOp:
+    """
+    Brusselator reaction-diffusion reaction terms (oscillatory instability).
+
+    du/dt = ... + a - (b+1)*u + u^2*v
+    dv/dt = ... + b*u - u^2*v
+
+    Expected params:
+        'a': kinetic parameter (default 1.0)
+        'b': kinetic parameter (default 3.4, above Hopf threshold b > 1+a^2 = 2)
+    """
+    def apply_reaction(state: StateDict, grid: GridType, t: float, params: Dict) -> StateDict:
+        a = params.get('a', 1.0)
+        b = params.get('b', 3.4)
+
+        u = state['u']
+        v = state['v']
+
+        u2v = u * u * v
+
+        return {
+            'u': a - (b + 1.0) * u + u2v,
+            'v': b * u - u2v
+        }
+
+    def dt_bound(grid: GridType, state: StateDict, params: Dict) -> float:
+        b = params.get('b', 3.4)
+        return 0.5 / (b + 1.0 + 1e-14)
+
+    return NonlinearOp(name="brusselator_reaction", apply=apply_reaction, dt_bound=dt_bound)
+
+
 def fisher_kpp_reaction_op(field_name: str = 'u', r_param: str = 'r') -> NonlinearOp:
     """
     Fisher-KPP reaction term: r * u * (1 - u).

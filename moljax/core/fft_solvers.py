@@ -37,9 +37,10 @@ class FFTCache1D(NamedTuple):
 
 class FFTCache2D(NamedTuple):
     """Cached FFT data for 2D grids."""
-    laplacian_symbol: jnp.ndarray  # Shape (ny, nx)
+    laplacian_symbol: jnp.ndarray  # Shape (ny, nx) [full] or (ny, nx//2+1) [rfft]
     kx: jnp.ndarray  # x-wavenumbers
     ky: jnp.ndarray  # y-wavenumbers
+    use_rfft: bool = False  # Whether this cache uses rfft (half-spectrum)
 
 
 # =============================================================================
@@ -92,6 +93,69 @@ def build_wavenumbers_2d(
     ky = jnp.broadcast_to(ky_1d[:, None], (ny, nx)).astype(dtype)
 
     return kx, ky
+
+
+def build_wavenumbers_2d_rfft(
+    ny: int,
+    nx: int,
+    dy: float,
+    dx: float,
+    dtype: jnp.dtype = jnp.float64
+) -> Tuple[jnp.ndarray, jnp.ndarray]:
+    """
+    Build wavenumbers for 2D rfft (real FFT).
+
+    Uses rfftfreq for the last axis, giving shape (ny, nx//2+1) instead of (ny, nx).
+    This halves the spectral data for real-valued fields.
+
+    Args:
+        ny: Number of interior points in y
+        nx: Number of interior points in x
+        dy: Grid spacing in y
+        dx: Grid spacing in x
+        dtype: Data type
+
+    Returns:
+        Tuple of (kx, ky) wavenumber arrays, each with shape (ny, nx//2+1)
+    """
+    kx_1d = 2.0 * jnp.pi * jnp.fft.fftfreq(ny, d=dy)    # Full spectrum in y
+    ky_1d = 2.0 * jnp.pi * jnp.fft.rfftfreq(nx, d=dx)    # Half spectrum in x
+
+    nx_r = nx // 2 + 1
+    kx = jnp.broadcast_to(kx_1d[:, None], (ny, nx_r)).astype(dtype)
+    ky = jnp.broadcast_to(ky_1d, (ny, nx_r)).astype(dtype)
+
+    return kx, ky
+
+
+def laplacian_symbol_2d_rfft(
+    ny: int,
+    nx: int,
+    dy: float,
+    dx: float,
+    dtype: jnp.dtype = jnp.float64
+) -> jnp.ndarray:
+    """
+    Build discrete Laplacian symbol for 2D periodic domain using rfft layout.
+
+    Shape: (ny, nx//2+1) — half the modes of the full FFT symbol.
+
+    Args:
+        ny: Number of interior points in y
+        nx: Number of interior points in x
+        dy: Grid spacing in y
+        dx: Grid spacing in x
+        dtype: Data type
+
+    Returns:
+        Laplacian symbol array of shape (ny, nx//2+1)
+    """
+    kx, ky = build_wavenumbers_2d_rfft(ny, nx, dy, dx, dtype)
+
+    lam_x = (2.0 * jnp.cos(kx * dy) - 2.0) / (dy * dy)
+    lam_y = (2.0 * jnp.cos(ky * dx) - 2.0) / (dx * dx)
+
+    return lam_x + lam_y
 
 
 def laplacian_symbol_1d(
@@ -198,6 +262,29 @@ def create_fft_cache_2d(grid: Grid2D, dtype: jnp.dtype = jnp.float64) -> FFTCach
     return FFTCache2D(laplacian_symbol=lam, kx=kx, ky=ky)
 
 
+def create_fft_cache_2d_rfft(grid: Grid2D, dtype: jnp.dtype = jnp.float64) -> FFTCache2D:
+    """
+    Create rfft-based FFT cache for 2D grid (half-spectrum for real fields).
+
+    Uses rfftfreq for the last axis, producing symbols of shape (ny, nx//2+1).
+    This halves FFT work for real-valued PDE fields.
+
+    Args:
+        grid: Grid2D instance
+        dtype: Data type
+
+    Returns:
+        FFTCache2D with use_rfft=True and half-spectrum symbols
+    """
+    nx, ny = grid.nx, grid.ny
+    dx, dy = grid.dx, grid.dy
+
+    kx, ky = build_wavenumbers_2d_rfft(ny, nx, dy, dx, dtype)
+    lam = laplacian_symbol_2d_rfft(ny, nx, dy, dx, dtype)
+
+    return FFTCache2D(laplacian_symbol=lam, kx=kx, ky=ky, use_rfft=True)
+
+
 def create_fft_cache(grid: GridType, dtype: jnp.dtype = jnp.float64):
     """
     Create FFT cache for any grid type.
@@ -262,7 +349,8 @@ def solve_helmholtz_2d(
     rhs_interior: jnp.ndarray,
     laplacian_symbol: jnp.ndarray,
     dt: float,
-    D: float
+    D: float,
+    use_rfft: bool = False
 ) -> jnp.ndarray:
     """
     Solve (I - dt * D * Δ) u = rhs using FFT for 2D periodic domain.
@@ -272,6 +360,7 @@ def solve_helmholtz_2d(
         laplacian_symbol: Precomputed Laplacian symbol
         dt: Time step
         D: Diffusion coefficient
+        use_rfft: If True, use rfft2/irfft2 (faster for real fields)
 
     Returns:
         Solution u on interior, shape (ny, nx)
@@ -282,14 +371,15 @@ def solve_helmholtz_2d(
     # Avoid division by zero
     denom = jnp.where(jnp.abs(denom) < 1e-14, 1e-14, denom)
 
-    # Forward FFT
-    rhs_hat = jnp.fft.fft2(rhs_interior)
-
-    # Solve in Fourier space
-    u_hat = rhs_hat / denom
-
-    # Inverse FFT
-    u = jnp.fft.ifft2(u_hat).real
+    if use_rfft:
+        ny, nx = rhs_interior.shape
+        rhs_hat = jnp.fft.rfft2(rhs_interior)
+        u_hat = rhs_hat / denom
+        u = jnp.fft.irfft2(u_hat, s=(ny, nx))
+    else:
+        rhs_hat = jnp.fft.fft2(rhs_interior)
+        u_hat = rhs_hat / denom
+        u = jnp.fft.ifft2(u_hat).real
 
     return u
 
@@ -298,7 +388,8 @@ def solve_helmholtz(
     rhs_interior: jnp.ndarray,
     laplacian_symbol: jnp.ndarray,
     dt: float,
-    D: float
+    D: float,
+    use_rfft: bool = False
 ) -> jnp.ndarray:
     """
     Solve (I - dt * D * Δ) u = rhs using FFT.
@@ -310,6 +401,7 @@ def solve_helmholtz(
         laplacian_symbol: Precomputed Laplacian symbol
         dt: Time step
         D: Diffusion coefficient
+        use_rfft: If True, use rfft2/irfft2 for 2D (faster for real fields)
 
     Returns:
         Solution u on interior
@@ -317,7 +409,7 @@ def solve_helmholtz(
     if rhs_interior.ndim == 1:
         return solve_helmholtz_1d(rhs_interior, laplacian_symbol, dt, D)
     else:
-        return solve_helmholtz_2d(rhs_interior, laplacian_symbol, dt, D)
+        return solve_helmholtz_2d(rhs_interior, laplacian_symbol, dt, D, use_rfft=use_rfft)
 
 
 # =============================================================================
@@ -391,7 +483,8 @@ def solve_diffusion_fft_field(
     rhs_interior = extract_interior(rhs_padded, grid)
 
     # Solve using FFT
-    u_interior = solve_helmholtz(rhs_interior, fft_cache.laplacian_symbol, dt, D)
+    use_rfft = getattr(fft_cache, 'use_rfft', False)
+    u_interior = solve_helmholtz(rhs_interior, fft_cache.laplacian_symbol, dt, D, use_rfft=use_rfft)
 
     # Embed back into padded array
     u_padded = embed_interior(u_interior, grid, rhs_padded)
@@ -533,7 +626,8 @@ def exponential_filter_2d(
 
 def apply_spectral_filter_interior(
     u_interior: jnp.ndarray,
-    filter_kernel: jnp.ndarray
+    filter_kernel: jnp.ndarray,
+    use_rfft: bool = False
 ) -> jnp.ndarray:
     """
     Apply spectral filter to interior array.
@@ -541,6 +635,7 @@ def apply_spectral_filter_interior(
     Args:
         u_interior: Interior values (no ghost cells)
         filter_kernel: Precomputed filter in Fourier space
+        use_rfft: If True, use rfft2/irfft2 for 2D (faster for real fields)
 
     Returns:
         Filtered interior values
@@ -550,9 +645,15 @@ def apply_spectral_filter_interior(
         u_hat_filtered = u_hat * filter_kernel
         return jnp.fft.ifft(u_hat_filtered).real
     else:
-        u_hat = jnp.fft.fft2(u_interior)
-        u_hat_filtered = u_hat * filter_kernel
-        return jnp.fft.ifft2(u_hat_filtered).real
+        if use_rfft:
+            ny, nx = u_interior.shape
+            u_hat = jnp.fft.rfft2(u_interior)
+            u_hat_filtered = u_hat * filter_kernel
+            return jnp.fft.irfft2(u_hat_filtered, s=(ny, nx))
+        else:
+            u_hat = jnp.fft.fft2(u_interior)
+            u_hat_filtered = u_hat * filter_kernel
+            return jnp.fft.ifft2(u_hat_filtered).real
 
 
 def apply_spectral_filter_field(
@@ -637,6 +738,7 @@ def diffusion_rhs_fft(
     Returns:
         Diffusion RHS for each field
     """
+    use_rfft = getattr(fft_cache, 'use_rfft', False)
     result = {}
 
     for name, field in state.items():
@@ -647,12 +749,18 @@ def diffusion_rhs_fft(
             f_interior = extract_interior(field, grid)
 
             # Compute Laplacian in Fourier space
-            f_hat = jnp.fft.fft2(f_interior) if f_interior.ndim == 2 else jnp.fft.fft(f_interior)
-            lap_hat = fft_cache.laplacian_symbol * f_hat
-
-            if f_interior.ndim == 2:
+            if f_interior.ndim == 2 and use_rfft:
+                ny, nx = f_interior.shape
+                f_hat = jnp.fft.rfft2(f_interior)
+                lap_hat = fft_cache.laplacian_symbol * f_hat
+                lap_f = jnp.fft.irfft2(lap_hat, s=(ny, nx))
+            elif f_interior.ndim == 2:
+                f_hat = jnp.fft.fft2(f_interior)
+                lap_hat = fft_cache.laplacian_symbol * f_hat
                 lap_f = jnp.fft.ifft2(lap_hat).real
             else:
+                f_hat = jnp.fft.fft(f_interior)
+                lap_hat = fft_cache.laplacian_symbol * f_hat
                 lap_f = jnp.fft.ifft(lap_hat).real
 
             # Embed back and scale

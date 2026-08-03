@@ -27,6 +27,8 @@ from moljax.core.operators import (
     laplacian_1d, laplacian_2d,
     d1_upwind_1d, d1_upwind_2d,
     gray_scott_reaction_op,
+    schnakenberg_reaction_op,
+    brusselator_reaction_op,
     acoustics_1d_linear_op,
 )
 
@@ -276,6 +278,158 @@ def create_gray_scott_model(
     reaction_op = gray_scott_reaction_op()
 
     # Metadata
+    metadata = {
+        'field_names': ['u', 'v'],
+        'pde_type': 'reaction_diffusion',
+        'stiff': True
+    }
+
+    return MOLModel(
+        grid=grid,
+        bc_spec=bc_spec,
+        params=params,
+        linear_ops=(diffusion_op,),
+        nonlinear_ops=(reaction_op,),
+        metadata=metadata
+    )
+
+
+def create_schnakenberg_model(
+    grid: Grid2D,
+    Du: float = 1.0,
+    Dv: float = 40.0,
+    a: float = 0.1,
+    b: float = 0.9,
+    gamma: float = 1000.0,
+    bc_type: BCType = BCType.PERIODIC,
+    dtype: jnp.dtype = jnp.float64
+) -> MOLModel:
+    """
+    Create Schnakenberg reaction-diffusion model (Turing morphogenesis).
+
+    System:
+        du/dt = Du * Laplacian(u) + gamma * (a - u + u^2*v)
+        dv/dt = Dv * Laplacian(v) + gamma * (b - u^2*v)
+
+    Args:
+        grid: 2D grid
+        Du: Diffusion coefficient for u (default 1.0)
+        Dv: Diffusion coefficient for v (default 40.0)
+        a: Kinetic parameter (default 0.1)
+        b: Kinetic parameter (default 0.9)
+        gamma: Gierer-Meinhardt scaling (default 1000)
+        bc_type: Boundary condition type (default PERIODIC)
+        dtype: Data type (default float64)
+
+    Returns:
+        MOLModel configured for Schnakenberg
+    """
+    bc_spec = {
+        'u': FieldBCSpec(kind=bc_type),
+        'v': FieldBCSpec(kind=bc_type)
+    }
+
+    params = {
+        'Du': Du, 'Dv': Dv,
+        'a': a, 'b': b, 'gamma': gamma,
+        'dtype': dtype
+    }
+
+    def diffusion_apply(state: StateDict, grid: Grid2D, t: float, params: Dict) -> StateDict:
+        Du = params['Du']
+        Dv = params['Dv']
+        return {
+            'u': Du * laplacian_2d(state['u'], grid),
+            'v': Dv * laplacian_2d(state['v'], grid)
+        }
+
+    def diffusion_dt_bound(grid: Grid2D, params: Dict) -> float:
+        D_max = max(params['Du'], params['Dv'])
+        return 0.25 * grid.min_dx2 / (D_max + 1e-14)
+
+    diffusion_op = LinearOp(
+        name="schnakenberg_diffusion",
+        apply=diffusion_apply,
+        dt_bound=diffusion_dt_bound
+    )
+
+    reaction_op = schnakenberg_reaction_op()
+
+    metadata = {
+        'field_names': ['u', 'v'],
+        'pde_type': 'reaction_diffusion',
+        'stiff': True
+    }
+
+    return MOLModel(
+        grid=grid,
+        bc_spec=bc_spec,
+        params=params,
+        linear_ops=(diffusion_op,),
+        nonlinear_ops=(reaction_op,),
+        metadata=metadata
+    )
+
+
+def create_brusselator_model(
+    grid: Grid2D,
+    Du: float = 0.01,
+    Dv: float = 0.02,
+    a: float = 1.0,
+    b: float = 3.4,
+    bc_type: BCType = BCType.PERIODIC,
+    dtype: jnp.dtype = jnp.float64
+) -> MOLModel:
+    """
+    Create Brusselator reaction-diffusion model (oscillatory instability).
+
+    System:
+        du/dt = Du * Laplacian(u) + a - (b+1)*u + u^2*v
+        dv/dt = Dv * Laplacian(v) + b*u - u^2*v
+
+    Args:
+        grid: 2D grid
+        Du: Diffusion coefficient for u (default 0.01)
+        Dv: Diffusion coefficient for v (default 0.02)
+        a: Kinetic parameter (default 1.0)
+        b: Kinetic parameter (default 3.4, above Hopf threshold)
+        bc_type: Boundary condition type (default PERIODIC)
+        dtype: Data type (default float64)
+
+    Returns:
+        MOLModel configured for Brusselator
+    """
+    bc_spec = {
+        'u': FieldBCSpec(kind=bc_type),
+        'v': FieldBCSpec(kind=bc_type)
+    }
+
+    params = {
+        'Du': Du, 'Dv': Dv,
+        'a': a, 'b': b,
+        'dtype': dtype
+    }
+
+    def diffusion_apply(state: StateDict, grid: Grid2D, t: float, params: Dict) -> StateDict:
+        Du = params['Du']
+        Dv = params['Dv']
+        return {
+            'u': Du * laplacian_2d(state['u'], grid),
+            'v': Dv * laplacian_2d(state['v'], grid)
+        }
+
+    def diffusion_dt_bound(grid: Grid2D, params: Dict) -> float:
+        D_max = max(params['Du'], params['Dv'])
+        return 0.25 * grid.min_dx2 / (D_max + 1e-14)
+
+    diffusion_op = LinearOp(
+        name="brusselator_diffusion",
+        apply=diffusion_apply,
+        dt_bound=diffusion_dt_bound
+    )
+
+    reaction_op = brusselator_reaction_op()
+
     metadata = {
         'field_names': ['u', 'v'],
         'pde_type': 'reaction_diffusion',
@@ -572,6 +726,89 @@ def create_gray_scott_periodic_fft(
     metadata['supports_fft'] = True
 
     # Create new model with updated metadata
+    model_fft = MOLModel(
+        grid=model.grid,
+        bc_spec=model.bc_spec,
+        params=model.params,
+        linear_ops=model.linear_ops,
+        nonlinear_ops=model.nonlinear_ops,
+        metadata=metadata
+    )
+
+    return model_fft, fft_cache, diffusivities
+
+
+def create_schnakenberg_periodic_fft(
+    grid: Grid2D,
+    Du: float = 1.0,
+    Dv: float = 40.0,
+    a: float = 0.1,
+    b: float = 0.9,
+    gamma: float = 1000.0,
+    dtype: jnp.dtype = jnp.float64
+) -> Tuple[MOLModel, Any, Dict[str, float]]:
+    """
+    Create Schnakenberg model with periodic BCs and precomputed FFT cache.
+
+    Returns:
+        Tuple of (model, fft_cache, diffusivities)
+    """
+    from moljax.core.fft_solvers import create_fft_cache
+
+    model = create_schnakenberg_model(
+        grid, Du=Du, Dv=Dv, a=a, b=b, gamma=gamma,
+        bc_type=BCType.PERIODIC, dtype=dtype
+    )
+
+    fft_cache = create_fft_cache(grid, dtype)
+    diffusivities = {'u': Du, 'v': Dv}
+
+    metadata = dict(model.metadata)
+    metadata['fft_cache'] = fft_cache
+    metadata['diffusivities'] = diffusivities
+    metadata['supports_fft'] = True
+
+    model_fft = MOLModel(
+        grid=model.grid,
+        bc_spec=model.bc_spec,
+        params=model.params,
+        linear_ops=model.linear_ops,
+        nonlinear_ops=model.nonlinear_ops,
+        metadata=metadata
+    )
+
+    return model_fft, fft_cache, diffusivities
+
+
+def create_brusselator_periodic_fft(
+    grid: Grid2D,
+    Du: float = 0.01,
+    Dv: float = 0.02,
+    a: float = 1.0,
+    b: float = 3.4,
+    dtype: jnp.dtype = jnp.float64
+) -> Tuple[MOLModel, Any, Dict[str, float]]:
+    """
+    Create Brusselator model with periodic BCs and precomputed FFT cache.
+
+    Returns:
+        Tuple of (model, fft_cache, diffusivities)
+    """
+    from moljax.core.fft_solvers import create_fft_cache
+
+    model = create_brusselator_model(
+        grid, Du=Du, Dv=Dv, a=a, b=b,
+        bc_type=BCType.PERIODIC, dtype=dtype
+    )
+
+    fft_cache = create_fft_cache(grid, dtype)
+    diffusivities = {'u': Du, 'v': Dv}
+
+    metadata = dict(model.metadata)
+    metadata['fft_cache'] = fft_cache
+    metadata['diffusivities'] = diffusivities
+    metadata['supports_fft'] = True
+
     model_fft = MOLModel(
         grid=model.grid,
         bc_spec=model.bc_spec,
