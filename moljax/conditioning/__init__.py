@@ -1,6 +1,7 @@
 """Matrix-free conditioning diagnostics."""
 
 from .field_of_values import FieldOfValuesResult, numerical_range
+from .linearization import LinearizedOperator, adjoint_identity, linearized_operator
 from .non_normality import (
     PreconditionerAssessment,
     RateEstimates,
@@ -23,10 +24,12 @@ from .pseudospectra import (
 
 __all__ = [
     "FieldOfValuesResult",
+    "LinearizedOperator",
     "PseudospectraResult",
     "PreconditionerAssessment",
     "RateEstimates",
     "arnoldi",
+    "adjoint_identity",
     "assess_preconditioner",
     "clustering_rate",
     "crouzeix_palencia_envelope",
@@ -34,6 +37,7 @@ __all__ = [
     "enclosing_disk_rate",
     "estimate_rates",
     "numerical_range",
+    "linearized_operator",
     "pseudospectrum_dense",
     "reduced_pseudospectrum",
     "right_real_outliers",
