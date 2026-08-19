@@ -25,6 +25,10 @@ from moljax.conditioning import (
     estimate_rates,
     linearized_operator,
     numerical_range,
+    plot_numerical_range,
+    plot_pseudospectrum,
+    plot_rate_scaling,
+    plot_residual_envelope,
     reduced_pseudospectrum,
     ritz_values,
 )
@@ -32,6 +36,7 @@ from moljax.core.grid import Grid2D
 from moljax.core.model import create_gray_scott_periodic_fft
 from moljax.core.newton_krylov import NKParams, create_implicit_residual
 from moljax.core.preconditioners import (
+    IdentityPreconditioner,
     PrecondContext,
     create_gray_scott_fft_preconditioner,
 )
@@ -60,6 +65,24 @@ class DemoConfig(NamedTuple):
     newton_tol: float = 1.0e-8
     krylov_tol: float = 1.0e-7
     seed: int = 20260819
+    figure_dir: str | None = "benchmarks/figures"
+
+
+class FigureData(NamedTuple):
+    """Already-computed diagnostic data used to render one report figure family."""
+
+    state_index: int
+    preconditioner: str
+    operator_dimension: int
+    fov: Any
+    ritz: jax.Array
+    real_grid: jax.Array
+    imag_grid: jax.Array
+    sigma_min: jax.Array
+    r1: float
+    r2: float
+    r3: float
+    predicted_gmres_factor: float
 
 
 def _ready_state(state: dict[str, jax.Array]) -> dict[str, jax.Array]:
@@ -132,10 +155,11 @@ def _run_state_diagnostics(
     state: dict[str, jax.Array],
     model: Any,
     preconditioner: Any,
+    preconditioner_name: str,
     config: DemoConfig,
     state_index: int,
     time_value: float,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], FigureData | None]:
     """Run the gate and all matrix-free diagnostics for one visited state."""
     residual_fn = create_implicit_residual(
         model,
@@ -159,12 +183,13 @@ def _run_state_diagnostics(
     common = {
         "state_index": state_index,
         "time": float(time_value),
+        "preconditioner": preconditioner_name,
         "operator_dimension": operator.n,
         "adjoint_identity": identity_error,
         "adjoint_tolerance": 1.0e-8,
     }
     if identity_error > 1.0e-8:
-        return {**common, "status": "adjoint_failed", "verdict": "skipped"}
+        return {**common, "status": "adjoint_failed", "verdict": "skipped"}, None
 
     counter = {"matvec": 0, "adjoint": 0}
 
@@ -209,7 +234,7 @@ def _run_state_diagnostics(
     diagnostic_cost = float(diagnostic_elapsed)
     baseline_median = float(baseline["median_s"])
 
-    return {
+    record = {
         **common,
         "status": "completed",
         "verdict": assessment.verdict,
@@ -245,6 +270,72 @@ def _run_state_diagnostics(
             "arnoldi_steps": int(hessenberg.shape[1]),
         },
     }
+    return (
+        record,
+        FigureData(
+            state_index=state_index,
+            preconditioner=preconditioner_name,
+            operator_dimension=operator.n,
+            fov=fov,
+            ritz=ritz,
+            real_grid=real_grid,
+            imag_grid=imag_grid,
+            sigma_min=reduced,
+            r1=rates.r1,
+            r2=rates.r2,
+            r3=rates.r3,
+            predicted_gmres_factor=rates.predicted_gmres_factor,
+        ),
+    )
+
+
+def _save_figure(figure: Any, path: Path) -> str:
+    """Save and clear a figure produced by the generic plotting API."""
+    figure.savefig(path, dpi=180)
+    figure.clear()
+    return str(path)
+
+
+def _render_figures(data: list[FigureData], figure_dir: str | None) -> list[str]:
+    """Render one generic report-figure family for each diagnostic case."""
+    if figure_dir is None:
+        return []
+    directory = Path(figure_dir)
+    directory.mkdir(parents=True, exist_ok=True)
+    paths: list[str] = []
+    for item in data:
+        stem = f"conditioning_state_{item.state_index}_{item.preconditioner}"
+        paths.append(
+            _save_figure(
+                plot_numerical_range(item.fov),
+                directory / f"{stem}_numerical_range.png",
+            )
+        )
+        paths.append(
+            _save_figure(
+                plot_pseudospectrum((item.real_grid, item.imag_grid, item.sigma_min, item.ritz)),
+                directory / f"{stem}_pseudospectrum.png",
+            )
+        )
+        paths.append(
+            _save_figure(
+                plot_rate_scaling(
+                    [item.operator_dimension],
+                    [item.r1],
+                    [item.r2],
+                    [item.r3],
+                ),
+                directory / f"{stem}_rates.png",
+            )
+        )
+        residuals = item.predicted_gmres_factor ** np.arange(0, 9)
+        paths.append(
+            _save_figure(
+                plot_residual_envelope(residuals, item.fov.disk_rate),
+                directory / f"{stem}_residual_envelope.png",
+            )
+        )
+    return paths
 
 
 def run_decision_demo(config: DemoConfig | None = None) -> dict[str, Any]:
@@ -277,6 +368,10 @@ def run_decision_demo(config: DemoConfig | None = None) -> dict[str, Any]:
             dtype=jnp.float64,
         )
         preconditioner = create_gray_scott_fft_preconditioner(fft_cache)
+        diagnostic_preconditioners = (
+            ("fft_diffusion", preconditioner),
+            ("identity", IdentityPreconditioner()),
+        )
         nk_params = NKParams(
             max_newton_iters=config.max_newton_iters,
             max_krylov_iters=config.max_krylov_iters,
@@ -285,6 +380,7 @@ def run_decision_demo(config: DemoConfig | None = None) -> dict[str, Any]:
         )
         state = _initial_condition(grid)
         states: list[dict[str, Any]] = []
+        figure_data: list[FigureData] = []
         time_value = 0.0
         for state_index in range(config.n_states):
             state, stats = be_step(
@@ -297,21 +393,25 @@ def run_decision_demo(config: DemoConfig | None = None) -> dict[str, Any]:
             )
             _ready_state(state)
             time_value += config.dt
-            record = _run_state_diagnostics(
-                state,
-                model,
-                preconditioner,
-                config,
-                state_index,
-                time_value,
-            )
-            record["implicit_step"] = {
-                "converged": bool(stats.converged),
-                "newton_iters": int(stats.newton_iters),
-                "linear_iters": int(stats.lin_iters),
-                "final_residual_norm": float(stats.final_res_norm),
-            }
-            states.append(record)
+            for preconditioner_name, diagnostic_preconditioner in diagnostic_preconditioners:
+                record, plot_data = _run_state_diagnostics(
+                    state,
+                    model,
+                    diagnostic_preconditioner,
+                    preconditioner_name,
+                    config,
+                    state_index,
+                    time_value,
+                )
+                record["implicit_step"] = {
+                    "converged": bool(stats.converged),
+                    "newton_iters": int(stats.newton_iters),
+                    "linear_iters": int(stats.lin_iters),
+                    "final_residual_norm": float(stats.final_res_norm),
+                }
+                states.append(record)
+                if state_index == 0 and plot_data is not None:
+                    figure_data.append(plot_data)
 
     completed = all(row["status"] == "completed" for row in states)
     return {
@@ -323,7 +423,8 @@ def run_decision_demo(config: DemoConfig | None = None) -> dict[str, Any]:
             "grid": [config.nx, config.ny],
             "boundary": "periodic",
             "integrator": "backward_euler_newton_krylov",
-            "preconditioner": "fft_diffusion",
+            "step_preconditioner": "fft_diffusion",
+            "diagnostic_preconditioners": ["fft_diffusion", "identity"],
             "diffusion_dominated_parameters": {
                 "Du": config.du,
                 "Dv": config.dv,
@@ -332,6 +433,7 @@ def run_decision_demo(config: DemoConfig | None = None) -> dict[str, Any]:
             },
         },
         "states": states,
+        "figures": _render_figures(figure_data, config.figure_dir),
     }
 
 

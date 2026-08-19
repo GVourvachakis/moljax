@@ -1,6 +1,12 @@
 """Matrix-free conditioning diagnostics."""
 
 from .field_of_values import FieldOfValuesResult, numerical_range
+from .figures import (
+    plot_numerical_range,
+    plot_pseudospectrum,
+    plot_rate_scaling,
+    plot_residual_envelope,
+)
 from .linearization import LinearizedOperator, adjoint_identity, linearized_operator
 from .non_normality import (
     PreconditionerAssessment,
@@ -37,6 +43,10 @@ __all__ = [
     "enclosing_disk_rate",
     "estimate_rates",
     "numerical_range",
+    "plot_numerical_range",
+    "plot_pseudospectrum",
+    "plot_rate_scaling",
+    "plot_residual_envelope",
     "linearized_operator",
     "pseudospectrum_dense",
     "reduced_pseudospectrum",
