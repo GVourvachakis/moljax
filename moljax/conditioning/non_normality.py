@@ -13,7 +13,8 @@ from typing import NamedTuple
 import jax
 import jax.numpy as jnp
 
-from moljax.conditioning.field_of_values import FieldOfValuesResult, _smallest_enclosing_disk
+from moljax.conditioning._geometry import _smallest_enclosing_disk
+from moljax.conditioning.field_of_values import FieldOfValuesResult
 
 _CP_PREFACTOR = 1.0 + math.sqrt(2.0)
 _RATE_AGREEMENT_TOLERANCE = 0.05
@@ -29,15 +30,15 @@ class RateEstimates(NamedTuple):
         r1: Enclosing-disk estimate ``rho / abs(c)``.
         r2: Traced-boundary minimax estimate.
         r3: Bulk Ritz-clustering estimate after self-consistent outlier removal.
-        gmres_factor: The smallest finite estimate among ``r1``, ``r2``, and
-            ``r3``.
+        predicted_gmres_factor: The smallest finite estimate among ``r1``,
+            ``r2``, and ``r3``.
         agree: Whether the finite estimates agree within a relative tolerance.
     """
 
     r1: float
     r2: float
     r3: float
-    gmres_factor: float
+    predicted_gmres_factor: float
     agree: bool
 
 
@@ -236,12 +237,12 @@ def estimate_rates(fov: FieldOfValuesResult, ritz: jax.Array) -> RateEstimates:
     r2 = traced_boundary_rate(fov.boundary)
     r3 = clustering_rate(ritz)
     finite = [rate for rate in (r1, r2, r3) if math.isfinite(rate)]
-    gmres_factor = min(finite) if finite else math.inf
+    predicted_gmres_factor = min(finite) if finite else math.inf
     return RateEstimates(
         r1=r1,
         r2=r2,
         r3=r3,
-        gmres_factor=gmres_factor,
+        predicted_gmres_factor=predicted_gmres_factor,
         agree=_rate_agreement((r1, r2, r3)),
     )
 
@@ -278,7 +279,7 @@ def assess_preconditioner(
         disk_rate=float(fov.disk_rate),
         epsilon_zero=float(epsilon_zero),
         n_right_real_outliers=n_outliers,
-        predicted_gmres_factor=rates.gmres_factor,
+        predicted_gmres_factor=rates.predicted_gmres_factor,
         rate_threshold=float(rate_threshold),
         eps_zero_threshold=float(eps_zero_threshold),
         max_right_real_outliers=max_right_real_outliers,

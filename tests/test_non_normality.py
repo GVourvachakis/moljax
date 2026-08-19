@@ -198,7 +198,7 @@ def test_rate_estimates_match_independent_dense_references(matrix: np.ndarray):
         expected_r3, abs=1.0e-12
     )
     assert rates.r3 == pytest.approx(expected_r3, abs=1.0e-12)
-    assert rates.gmres_factor == pytest.approx(min(expected_r1, expected_r2, expected_r3))
+    assert rates.predicted_gmres_factor == pytest.approx(min(expected_r1, expected_r2, expected_r3))
 
 
 def test_crouzeix_palencia_envelope_matches_formula_and_decreases():
