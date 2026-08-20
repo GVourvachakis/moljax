@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import jax
+import pytest
 
 from benchmarks.conditioning_decision_demo import DemoConfig, run_decision_demo
 
 
+@pytest.mark.slow
 def test_small_diffusion_decision_demo(tmp_path):
     """Visited states pass the adjoint gate and cover both decision verdicts."""
     with jax.enable_x64(True):
