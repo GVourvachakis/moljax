@@ -89,6 +89,15 @@ class BrusselatorLinearization(NamedTuple):
     rhs: jax.Array
 
 
+class TrajectorySample(NamedTuple):
+    """One converged trajectory state and its distance from the steady state."""
+
+    step: int
+    time: float
+    state: StateDict
+    developedness: dict[str, float]
+
+
 def resolve_regime(regime: str | BrusselatorRegime) -> BrusselatorRegime:
     """Return a named standard regime or pass through an explicit parameter set."""
     if isinstance(regime, BrusselatorRegime):
@@ -216,6 +225,116 @@ def visited_states(
             newton_tol=1.0e-8,
             krylov_tol=1.0e-8,
         ),
+    )
+
+
+def state_developedness(
+    state: StateDict,
+    grid: Grid2D,
+    regime: str | BrusselatorRegime,
+) -> dict[str, float]:
+    """Measure interior departure from the homogeneous Brusselator steady state."""
+    selected = resolve_regime(regime)
+    slice_y, slice_x = grid.interior_slice
+    u_interior = jnp.asarray(state["u"], dtype=jnp.float64)[slice_y, slice_x]
+    v_interior = jnp.asarray(state["v"], dtype=jnp.float64)[slice_y, slice_x]
+    return {
+        "max_abs_u_minus_steady": float(jnp.max(jnp.abs(u_interior - selected.a))),
+        "max_abs_v_minus_steady": float(jnp.max(jnp.abs(v_interior - selected.b / selected.a))),
+    }
+
+
+def _sampled_visited_states(
+    regime: BrusselatorRegime,
+    model: MOLModel,
+    fft_cache: Any,
+    *,
+    sample_steps: tuple[int, ...],
+    dt: float,
+    perturbation: float,
+    seed: int,
+    nk_params: NKParams,
+) -> list[TrajectorySample]:
+    """Advance BE steps and retain only requested, converged trajectory states."""
+    if not sample_steps:
+        raise ValueError("sample_steps must be nonempty")
+    if any(step < 1 for step in sample_steps):
+        raise ValueError("sample_steps must contain positive step numbers")
+    if tuple(sorted(set(sample_steps))) != sample_steps:
+        raise ValueError("sample_steps must be sorted and contain no duplicates")
+    if dt <= 0.0:
+        raise ValueError("dt must be positive")
+    if not isinstance(model.grid, Grid2D):
+        raise TypeError("The Brusselator study requires a two-dimensional grid")
+
+    state = _initial_state(model, regime, perturbation, seed)
+    preconditioner = create_fft_preconditioner({"u": "Du", "v": "Dv"}, fft_cache)
+    requested = set(sample_steps)
+    samples: list[TrajectorySample] = []
+    time_value = 0.0
+    for step in range(1, sample_steps[-1] + 1):
+        state, stats = be_step(
+            model,
+            state,
+            time_value,
+            dt,
+            preconditioner=preconditioner,
+            nk_params=nk_params,
+        )
+        state = _ready_state(state)
+        time_value += dt
+        if not bool(stats.converged):
+            raise RuntimeError(
+                "The FFT-preconditioned backward-Euler step did not converge "
+                f"at t={time_value:g}; no nonconverged iterate is analysed."
+            )
+        if step in requested:
+            samples.append(
+                TrajectorySample(
+                    step=step,
+                    time=time_value,
+                    state=state,
+                    developedness=state_developedness(state, model.grid, regime),
+                )
+            )
+    return samples
+
+
+def sampled_visited_states(
+    regime: str | BrusselatorRegime,
+    *,
+    grid: Grid2D,
+    sample_steps: tuple[int, ...],
+    dt: float,
+    perturbation: float,
+    seed: int,
+    nk_params: NKParams | None = None,
+) -> list[TrajectorySample]:
+    """Return selected converged states along a developed BE trajectory.
+
+    This retains only the requested samples while integrating every preceding
+    step.  The per-sample ``developedness`` metric is the maximum interior
+    departure from ``(a, b/a)``, ensuring that a diagnostic can distinguish a
+    developed state from a nearly unchanged perturbation.
+    """
+    selected = resolve_regime(regime)
+    model, fft_cache, _ = build_brusselator_system(selected, grid)
+    if nk_params is None:
+        nk_params = NKParams(
+            max_newton_iters=15,
+            max_krylov_iters=100,
+            newton_tol=1.0e-8,
+            krylov_tol=1.0e-8,
+        )
+    return _sampled_visited_states(
+        selected,
+        model,
+        fft_cache,
+        sample_steps=sample_steps,
+        dt=dt,
+        perturbation=perturbation,
+        seed=seed,
+        nk_params=nk_params,
     )
 
 
@@ -402,10 +521,13 @@ __all__ = [
     "HOPF_REGIME",
     "REGIMES",
     "TURING_REGIME",
+    "TrajectorySample",
     "assess_brusselator_state",
     "build_brusselator_linearization",
     "build_brusselator_system",
     "measure_brusselator_gmres",
     "resolve_regime",
+    "sampled_visited_states",
+    "state_developedness",
     "visited_states",
 ]
