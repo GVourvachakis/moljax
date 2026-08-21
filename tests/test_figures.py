@@ -88,6 +88,15 @@ def _assert_finite_non_degenerate_limits(figure: Figure) -> None:
     assert y_limits[1] > y_limits[0]
 
 
+def _assert_external_legend(figure: Figure) -> None:
+    """Check that a numerical-range legend cannot obscure plotted diagnostics."""
+    figure.canvas.draw()
+    axis = figure.axes[0]
+    legend = axis.get_legend()
+    assert legend is not None
+    assert legend.get_window_extent().x0 >= axis.get_window_extent().x1
+
+
 def test_conditioning_figures_return_populated_figures():
     """Each public plotting helper returns a matplotlib figure with axes."""
     numerical_range = plot_numerical_range(_near_real_field_of_values())
@@ -99,8 +108,11 @@ def test_conditioning_figures_return_populated_figures():
         assert all(isinstance(figure, Figure) and figure.axes for figure in figures)
         _assert_finite_non_degenerate_limits(numerical_range)
         _assert_finite_non_degenerate_limits(pseudospectrum)
+        _assert_external_legend(numerical_range)
         assert numerical_range.axes[0].get_aspect() == "auto"
+        assert numerical_range.axes[0].get_box_aspect() == 0.55
         assert pseudospectrum.axes[0].collections
+        assert all(text.get_text() != "origin" for text in pseudospectrum.axes[0].texts)
         _, rate_labels = rate_scaling.axes[0].get_legend_handles_labels()
         assert rate_labels[:3] == [
             "enclosing-disk rate",
