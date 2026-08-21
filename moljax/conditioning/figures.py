@@ -36,16 +36,57 @@ def _axes(ax: Any | None) -> tuple[Any, Any]:
     return ax.figure, ax
 
 
+def _padded_limits(values: np.ndarray, minimum_span: float) -> tuple[float, float]:
+    """Return finite limits with padding and a minimum visible span."""
+    finite = values[np.isfinite(values)]
+    if finite.size == 0:
+        raise ValueError("plot coordinates must contain at least one finite value")
+    lower = float(np.min(finite))
+    upper = float(np.max(finite))
+    span = max(upper - lower, minimum_span, np.finfo(np.float64).eps)
+    padding = 0.08 * span
+    midpoint = 0.5 * (lower + upper)
+    half_span = 0.5 * span + padding
+    return midpoint - half_span, midpoint + half_span
+
+
+def _set_visible_limits(
+    axis: Any,
+    real_values: np.ndarray,
+    imag_values: np.ndarray,
+) -> tuple[tuple[float, float], tuple[float, float]]:
+    """Set padded limits and avoid equal-aspect collapse for nearly real data."""
+    real_extent = float(np.ptp(real_values))
+    imag_extent = float(np.ptp(imag_values))
+    dominant_extent = max(real_extent, imag_extent, np.finfo(np.float64).eps)
+    minimum_span = 0.10 * dominant_extent
+    x_limits = _padded_limits(real_values, minimum_span)
+    y_limits = _padded_limits(imag_values, minimum_span)
+    axis.set_xlim(*x_limits)
+    axis.set_ylim(*y_limits)
+    degenerate = min(real_extent, imag_extent) / dominant_extent < 0.05
+    axis.set_aspect("auto" if degenerate else "equal", adjustable="box")
+    return x_limits, y_limits
+
+
 def plot_numerical_range(fov: FieldOfValuesResult, *, ax: Any | None = None) -> Any:
     """Plot a numerical-range boundary, its enclosing disk, and the origin."""
     figure, axis = _axes(ax)
     _, circle = _plotting_backend()
     boundary = np.asarray(fov.boundary, dtype=np.complex128)
+    if boundary.size == 0:
+        raise ValueError("numerical-range boundary must be nonempty")
+    center = complex(fov.center)
+    radius = float(fov.radius)
+    disk_real = np.asarray([center.real - radius, center.real + radius])
+    disk_imag = np.asarray([center.imag - radius, center.imag + radius])
+    view_real = np.concatenate((boundary.real, disk_real, np.asarray([center.real, 0.0])))
+    view_imag = np.concatenate((boundary.imag, disk_imag, np.asarray([center.imag, 0.0])))
     axis.plot(boundary.real, boundary.imag, "o-", markersize=3, label="numerical-range boundary")
     axis.add_patch(
         circle(
-            (float(np.real(fov.center)), float(np.imag(fov.center))),
-            float(fov.radius),
+            (center.real, center.imag),
+            radius,
             fill=False,
             linestyle="--",
             color="tab:orange",
@@ -54,14 +95,14 @@ def plot_numerical_range(fov: FieldOfValuesResult, *, ax: Any | None = None) -> 
     )
     axis.scatter([0.0], [0.0], marker="+", s=80, color="black", label="origin", zorder=3)
     axis.scatter(
-        [float(np.real(fov.center))],
-        [float(np.imag(fov.center))],
+        [center.real],
+        [center.imag],
         marker="x",
         color="tab:orange",
         label="disk center",
         zorder=3,
     )
-    axis.set_aspect("equal", adjustable="box")
+    _set_visible_limits(axis, view_real, view_imag)
     axis.set_xlabel("Re z")
     axis.set_ylabel("Im z")
     axis.set_title(f"Numerical range (rho / |c| = {fov.disk_rate:.3e})")
@@ -105,6 +146,46 @@ def _pseudospectrum_arrays(
     )
 
 
+def _pseudospectrum_view_values(
+    real: np.ndarray,
+    imag: np.ndarray,
+    ritz: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Choose a plotted view from the grid, with a local zoom for Ritz clusters."""
+    grid_real_span = float(np.ptp(real))
+    grid_imag_span = float(np.ptp(imag))
+    grid_span = max(grid_real_span, grid_imag_span, np.finfo(np.float64).eps)
+    finite_ritz = ritz[np.isfinite(ritz.real) & np.isfinite(ritz.imag)]
+    if finite_ritz.size:
+        ritz_real_span = float(np.ptp(finite_ritz.real))
+        ritz_imag_span = float(np.ptp(finite_ritz.imag))
+        ritz_span = max(ritz_real_span, ritz_imag_span)
+        if ritz_span < 0.25 * grid_span:
+            half_span = max(0.5 * ritz_span, 0.05 * grid_span)
+            midpoint = np.mean(finite_ritz)
+            view_real = np.asarray(
+                [
+                    midpoint.real - half_span,
+                    midpoint.real + half_span,
+                    *finite_ritz.real,
+                    0.0,
+                ]
+            )
+            view_imag = np.asarray(
+                [
+                    midpoint.imag - half_span,
+                    midpoint.imag + half_span,
+                    *finite_ritz.imag,
+                    0.0,
+                ]
+            )
+            return view_real, view_imag
+    return (
+        np.concatenate((real, finite_ritz.real, np.asarray([0.0]))),
+        np.concatenate((imag, finite_ritz.imag, np.asarray([0.0]))),
+    )
+
+
 def plot_pseudospectrum(result_or_grid: Any, *, ax: Any | None = None) -> Any:
     """Plot shifted-smallest-singular-value contours, Ritz values, and the origin.
 
@@ -119,14 +200,34 @@ def plot_pseudospectrum(result_or_grid: Any, *, ax: Any | None = None) -> Any:
     logged = np.log10(np.maximum(sigma_min, np.finfo(np.float64).tiny))
     low = float(np.min(logged))
     high = float(np.max(logged))
-    if math.isclose(low, high):
-        low -= 0.5
-        high += 0.5
-    contour = axis.contour(real, imag, logged, levels=np.linspace(low, high, 8), cmap="viridis")
-    figure.colorbar(contour, ax=axis, label="log10 sigma_min(zI - A)")
-    axis.scatter(ritz.real, ritz.imag, s=18, color="tab:red", label="Ritz values", zorder=3)
+    if math.isclose(low, high, rel_tol=1.0e-10, abs_tol=1.0e-12):
+        if real.size > 1 and imag.size > 1:
+            artist = axis.pcolormesh(real, imag, logged, shading="auto", cmap="viridis")
+        else:
+            real_mesh, imag_mesh = np.meshgrid(real, imag)
+            artist = axis.scatter(
+                real_mesh.reshape(-1),
+                imag_mesh.reshape(-1),
+                c=logged.reshape(-1),
+                cmap="viridis",
+            )
+    else:
+        artist = axis.contour(real, imag, logged, levels=np.linspace(low, high, 8), cmap="viridis")
+    figure.colorbar(artist, ax=axis, label="log10 sigma_min(zI - A)")
+    axis.scatter(
+        ritz.real,
+        ritz.imag,
+        s=52,
+        color="tab:red",
+        edgecolor="black",
+        linewidth=0.6,
+        label="Ritz values",
+        zorder=4,
+    )
     axis.scatter([0.0], [0.0], marker="+", s=80, color="black", label="origin", zorder=4)
-    axis.set_aspect("equal", adjustable="box")
+    axis.annotate("origin", (0.0, 0.0), xytext=(4, 4), textcoords="offset points", fontsize=8)
+    view_real, view_imag = _pseudospectrum_view_values(real, imag, ritz)
+    _set_visible_limits(axis, view_real, view_imag)
     axis.set_xlabel("Re z")
     axis.set_ylabel("Im z")
     axis.set_title("Reduced pseudospectrum")
@@ -144,16 +245,18 @@ def plot_rate_scaling(
     measured: Any | None = None,
     ax: Any | None = None,
 ) -> Any:
-    """Plot r1/r2/r3 against problem size and optional measured Krylov work."""
+    """Plot rate estimates across a problem-size sweep and optional measured Krylov work."""
     figure, axis = _axes(ax)
     sizes_array = np.asarray(sizes, dtype=np.float64).reshape(-1)
     rates = {
-        "r1 enclosing disk": np.asarray(r1, dtype=np.float64).reshape(-1),
-        "r2 traced boundary": np.asarray(r2, dtype=np.float64).reshape(-1),
-        "r3 bulk clustering": np.asarray(r3, dtype=np.float64).reshape(-1),
+        "enclosing-disk rate": np.asarray(r1, dtype=np.float64).reshape(-1),
+        "traced-boundary rate": np.asarray(r2, dtype=np.float64).reshape(-1),
+        "bulk-clustering rate": np.asarray(r3, dtype=np.float64).reshape(-1),
     }
     if sizes_array.size == 0 or any(values.size != sizes_array.size for values in rates.values()):
         raise ValueError("sizes and all rate arrays must be nonempty and have equal length")
+    if sizes_array.size < 2:
+        raise ValueError("plot_rate_scaling expects a size sweep with at least two points")
     for label, values in rates.items():
         axis.plot(sizes_array, values, "o-", label=label)
     axis.set_xscale("log")

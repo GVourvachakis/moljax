@@ -28,7 +28,6 @@ from moljax.conditioning import (
     numerical_range,
     plot_numerical_range,
     plot_pseudospectrum,
-    plot_rate_scaling,
     plot_residual_envelope,
     reduced_pseudospectrum,
     ritz_values,
@@ -74,15 +73,11 @@ class FigureData(NamedTuple):
 
     state_index: int
     preconditioner: str
-    operator_dimension: int
     fov: Any
     ritz: jax.Array
     real_grid: jax.Array
     imag_grid: jax.Array
     sigma_min: jax.Array
-    r1: float
-    r2: float
-    r3: float
     predicted_gmres_factor: float
 
 
@@ -276,15 +271,11 @@ def _run_state_diagnostics(
         FigureData(
             state_index=state_index,
             preconditioner=preconditioner_name,
-            operator_dimension=operator.n,
             fov=fov,
             ritz=ritz,
             real_grid=real_grid,
             imag_grid=imag_grid,
             sigma_min=reduced,
-            r1=rates.r1,
-            r2=rates.r2,
-            r3=rates.r3,
             predicted_gmres_factor=rates.predicted_gmres_factor,
         ),
     )
@@ -298,7 +289,7 @@ def _save_figure(figure: Any, path: Path) -> str:
 
 
 def _render_figures(data: list[FigureData], figure_dir: str | None) -> list[str]:
-    """Render one generic report-figure family for each diagnostic case."""
+    """Render numerical-range, pseudospectrum, and envelope figures per diagnostic case."""
     if figure_dir is None:
         return []
     directory = Path(figure_dir)
@@ -316,17 +307,6 @@ def _render_figures(data: list[FigureData], figure_dir: str | None) -> list[str]
             _save_figure(
                 plot_pseudospectrum((item.real_grid, item.imag_grid, item.sigma_min, item.ritz)),
                 directory / f"{stem}_pseudospectrum.png",
-            )
-        )
-        paths.append(
-            _save_figure(
-                plot_rate_scaling(
-                    [item.operator_dimension],
-                    [item.r1],
-                    [item.r2],
-                    [item.r3],
-                ),
-                directory / f"{stem}_rates.png",
             )
         )
         residuals = item.predicted_gmres_factor ** np.arange(0, 9)

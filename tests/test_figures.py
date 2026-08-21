@@ -51,16 +51,68 @@ def _pseudospectra() -> PseudospectraResult:
     )
 
 
+def _near_real_field_of_values() -> FieldOfValuesResult:
+    """Return a nearly real result that must not collapse under equal aspect."""
+    boundary = 2.0 + np.linspace(-0.2, 0.2, 7) + 1.0e-8j * np.linspace(-1.0, 1.0, 7)
+    return FieldOfValuesResult(
+        boundary=jnp.asarray(boundary),
+        center=2.0 + 0.0j,
+        radius=1.0e-8,
+        disk_rate=5.0e-9,
+        origin_enclosed=False,
+        cp_prefactor=1.0 + math.sqrt(2.0),
+    )
+
+
+def _clustered_pseudospectra() -> PseudospectraResult:
+    """Return constant-level data with tightly clustered Ritz values."""
+    real = jnp.linspace(-20.0, 20.0, 5)
+    imag = jnp.linspace(-1.0e-6, 1.0e-6, 3)
+    return PseudospectraResult(
+        real_grid=real,
+        imag_grid=imag,
+        sigma_min=jnp.ones((imag.size, real.size)),
+        ritz_values=jnp.asarray([1.0 + 1.0e-8j, 1.0 - 1.0e-8j]),
+        epsilon_zero=1.0,
+    )
+
+
+def _assert_finite_non_degenerate_limits(figure: Figure) -> None:
+    """Check the primary plot axes have finite, nonzero view ranges."""
+    axis = figure.axes[0]
+    x_limits = axis.get_xlim()
+    y_limits = axis.get_ylim()
+    assert np.isfinite(x_limits).all()
+    assert np.isfinite(y_limits).all()
+    assert x_limits[1] > x_limits[0]
+    assert y_limits[1] > y_limits[0]
+
+
 def test_conditioning_figures_return_populated_figures():
     """Each public plotting helper returns a matplotlib figure with axes."""
-    figures = [
-        plot_numerical_range(_field_of_values()),
-        plot_pseudospectrum(_pseudospectra()),
-        plot_rate_scaling([16, 64], [0.4, 0.2], [0.3, 0.15], [0.2, 0.1], measured=[8, 5]),
-        plot_residual_envelope([1.0, 0.2, 0.04], 0.25),
-    ]
+    numerical_range = plot_numerical_range(_near_real_field_of_values())
+    pseudospectrum = plot_pseudospectrum(_clustered_pseudospectra())
+    rate_scaling = plot_rate_scaling([16, 64], [0.4, 0.2], [0.3, 0.15], [0.2, 0.1], measured=[8, 5])
+    residual_envelope = plot_residual_envelope([1.0, 0.2, 0.04], 0.25)
+    figures = [numerical_range, pseudospectrum, rate_scaling, residual_envelope]
     try:
         assert all(isinstance(figure, Figure) and figure.axes for figure in figures)
+        _assert_finite_non_degenerate_limits(numerical_range)
+        _assert_finite_non_degenerate_limits(pseudospectrum)
+        assert numerical_range.axes[0].get_aspect() == "auto"
+        assert pseudospectrum.axes[0].collections
+        _, rate_labels = rate_scaling.axes[0].get_legend_handles_labels()
+        assert rate_labels[:3] == [
+            "enclosing-disk rate",
+            "traced-boundary rate",
+            "bulk-clustering rate",
+        ]
+        x_limits = pseudospectrum.axes[0].get_xlim()
+        y_limits = pseudospectrum.axes[0].get_ylim()
+        ritz = np.asarray(_clustered_pseudospectra().ritz_values)
+        assert ritz.size > 0
+        assert np.all((x_limits[0] <= ritz.real) & (ritz.real <= x_limits[1]))
+        assert np.all((y_limits[0] <= ritz.imag) & (ritz.imag <= y_limits[1]))
     finally:
         for figure in figures:
             plt.close(figure)
