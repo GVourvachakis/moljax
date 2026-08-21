@@ -36,4 +36,4 @@ def test_small_diffusion_decision_demo(tmp_path):
         "adequate",
         "investigate",
     }
-    assert len(result["figures"]) == 8
+    assert len(result["figures"]) == 6
