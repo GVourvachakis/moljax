@@ -64,8 +64,16 @@ def _set_visible_limits(
     y_limits = _padded_limits(imag_values, minimum_span)
     axis.set_xlim(*x_limits)
     axis.set_ylim(*y_limits)
-    degenerate = min(real_extent, imag_extent) / dominant_extent < 0.05
-    axis.set_aspect("auto" if degenerate else "equal", adjustable="box")
+    degenerate = min(real_extent, imag_extent) / dominant_extent < 0.15
+    if degenerate:
+        # A circular artist can otherwise make matplotlib retain a very shallow
+        # data-aspect box.  Keep the displayed data limits, but reserve a
+        # readable plotting height for a nearly real spectrum.
+        axis.set_aspect("auto")
+        axis.set_box_aspect(0.55)
+    else:
+        axis.set_box_aspect(None)
+        axis.set_aspect("equal", adjustable="box")
     return x_limits, y_limits
 
 
@@ -82,7 +90,7 @@ def plot_numerical_range(fov: FieldOfValuesResult, *, ax: Any | None = None) -> 
     disk_imag = np.asarray([center.imag - radius, center.imag + radius])
     view_real = np.concatenate((boundary.real, disk_real, np.asarray([center.real, 0.0])))
     view_imag = np.concatenate((boundary.imag, disk_imag, np.asarray([center.imag, 0.0])))
-    axis.plot(boundary.real, boundary.imag, "o-", markersize=3, label="numerical-range boundary")
+    axis.plot(boundary.real, boundary.imag, "o-", markersize=3, label="boundary")
     axis.add_patch(
         circle(
             (center.real, center.imag),
@@ -107,7 +115,7 @@ def plot_numerical_range(fov: FieldOfValuesResult, *, ax: Any | None = None) -> 
     axis.set_ylabel("Im z")
     axis.set_title(f"Numerical range (rho / |c| = {fov.disk_rate:.3e})")
     axis.grid(True, alpha=0.25)
-    axis.legend(fontsize=8)
+    axis.legend(fontsize=8, loc="upper left", bbox_to_anchor=(1.02, 1.0), borderaxespad=0.0)
     return figure
 
 
@@ -225,14 +233,13 @@ def plot_pseudospectrum(result_or_grid: Any, *, ax: Any | None = None) -> Any:
         zorder=4,
     )
     axis.scatter([0.0], [0.0], marker="+", s=80, color="black", label="origin", zorder=4)
-    axis.annotate("origin", (0.0, 0.0), xytext=(4, 4), textcoords="offset points", fontsize=8)
     view_real, view_imag = _pseudospectrum_view_values(real, imag, ritz)
     _set_visible_limits(axis, view_real, view_imag)
     axis.set_xlabel("Re z")
     axis.set_ylabel("Im z")
     axis.set_title("Reduced pseudospectrum")
     axis.grid(True, alpha=0.25)
-    axis.legend(fontsize=8)
+    axis.legend(fontsize=8, loc="upper left")
     return figure
 
 
@@ -245,7 +252,7 @@ def plot_rate_scaling(
     measured: Any | None = None,
     ax: Any | None = None,
 ) -> Any:
-    """Plot rate estimates across a problem-size sweep and optional measured Krylov work."""
+    """Plot rate estimates across a multi-size sweep and optional Krylov work."""
     figure, axis = _axes(ax)
     sizes_array = np.asarray(sizes, dtype=np.float64).reshape(-1)
     rates = {
