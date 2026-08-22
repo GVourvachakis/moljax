@@ -1,11 +1,5 @@
 #!/usr/bin/env python3
-"""Two-regime Brusselator conditioning study on moljax's periodic FFT path.
-
-The study evaluates genuinely visited backward-Euler states rather than the
-homogeneous fixed point.  It compares the identity baseline with the shipped
-FFT diffusion preconditioner and records both geometric diagnostics and a
-matrix-free counted-GMRES ground truth.
-"""
+"""Parameterized Brusselator conditioning studies."""
 
 from __future__ import annotations
 
@@ -22,188 +16,129 @@ from moljax.core.newton_krylov import NKParams
 from moljax.experimental.brusselator_conditioning import (
     HOPF_REGIME,
     TURING_REGIME,
-    BrusselatorRegime,
     _integrate_visited_states,
     assess_brusselator_state,
     build_brusselator_system,
     measure_brusselator_gmres,
+    sampled_visited_states,
 )
 
 
-class BrusselatorStudyConfig(NamedTuple):
-    """Configuration for a tractable 64² visited-state conditioning study.
+class BrusselatorConditioningConfig(NamedTuple):
+    """Configuration shared by all three benchmark presets."""
 
-    ``nx=ny=64`` is deliberately smaller than the paper's 256² target so the
-    full matrix-free diagnostics can run at study cadence.  The Turing
-    regime retains the paper's ``L=5`` and reference horizon ``t=200`` in its
-    parameter record; this initial screen diagnoses the first few converged
-    states, selected by ``n_states`` and ``dt``.
-    """
-
-    nx: int = 64
-    ny: int = 64
-    n_states: int = 2
-    dt: float = 0.1
-    perturbation: float = 1.0e-3
-    seed: int = 20260821
-    n_angles: int = 4
-    fov_max_iters: int = 8
-    arnoldi_steps: int = 6
-    max_newton_iters: int = 10
-    max_krylov_iters: int = 80
-    newton_tol: float = 1.0e-8
-    krylov_tol: float = 1.0e-8
+    mode: str
+    nx: int
+    ny: int
+    dt: float
+    perturbation: float
+    seed: int
+    n_angles: int
+    fov_max_iters: int
+    arnoldi_steps: int
+    max_newton_iters: int
+    max_krylov_iters: int
+    newton_tol: float
+    krylov_tol: float
+    n_states: int = 0
+    hopf_sample_steps: tuple[int, ...] = ()
+    turing_sample_steps: tuple[int, ...] = ()
     output_path: str = "benchmarks/results/brusselator_conditioning.json"
 
 
-def _distribution(records: list[dict[str, Any]]) -> dict[str, int]:
-    """Return all relevant verdict counts, including an explicit skipped bucket."""
-    verdicts = {"adequate": 0, "investigate": 0, "indeterminate": 0, "skipped": 0}
-    for record in records:
-        verdicts[record["verdict"]] = verdicts.get(record["verdict"], 0) + 1
-    return verdicts
-
-
-def _finite_values(records: list[dict[str, Any]], name: str) -> list[float]:
-    """Extract finite completed-record values from a JSON-ready record list."""
-    return [float(record[name]) for record in records if record["status"] == "completed"]
-
-
-def _regime_summary(records: list[dict[str, Any]], regime: BrusselatorRegime) -> dict[str, Any]:
-    """Summarize FFT-preconditioned diagnostics for one physical regime."""
-    fft_records = [record for record in records if record["preconditioner"] == "fft_diffusion"]
-    disk_rates = _finite_values(fft_records, "disk_rate")
-    imag_extents = _finite_values(fft_records, "fov_imaginary_extent")
-    origin_flags = [
-        bool(record["origin_enclosed"]) for record in fft_records if record["status"] == "completed"
-    ]
-    fft_iterations = [
-        float(record["actual_gmres"]["iterations"])
-        for record in fft_records
-        if record["actual_gmres"] is not None
-    ]
-    return {
-        "parameters": regime._asdict(),
-        "fft_records": len(fft_records),
-        "verdict_distribution": _distribution(fft_records),
-        "median_disk_rate": float(median(disk_rates)) if disk_rates else None,
-        "median_fov_imaginary_extent": float(median(imag_extents)) if imag_extents else None,
-        "origin_enclosed_fraction": (
-            float(sum(origin_flags) / len(origin_flags)) if origin_flags else None
-        ),
-        "median_actual_fft_gmres_iterations": (
-            float(median(fft_iterations)) if fft_iterations else None
-        ),
-    }
-
-
-def _hopf_vs_turing(comparison: dict[str, dict[str, Any]]) -> dict[str, Any]:
-    """State the two-regime outcome only from the collected summary statistics."""
-    hopf = comparison["hopf"]
-    turing = comparison["turing"]
-    hopf_nonadequate = (
-        hopf["verdict_distribution"]["investigate"] + hopf["verdict_distribution"]["indeterminate"]
+def _config(mode: str, **kwargs: Any) -> BrusselatorConditioningConfig:
+    defaults = dict(
+        mode=mode,
+        nx=64,
+        ny=64,
+        dt=0.1,
+        perturbation=1.0e-3,
+        seed=20260821,
+        n_angles=4,
+        fov_max_iters=8,
+        arnoldi_steps=6,
+        max_newton_iters=10,
+        max_krylov_iters=80,
+        newton_tol=1.0e-8,
+        krylov_tol=1.0e-8,
     )
-    turing_nonadequate = (
-        turing["verdict_distribution"]["investigate"]
-        + turing["verdict_distribution"]["indeterminate"]
-    )
-    nonadequate_separation = hopf_nonadequate > turing_nonadequate or (
-        hopf["origin_enclosed_fraction"] is not None
-        and turing["origin_enclosed_fraction"] is not None
-        and hopf["origin_enclosed_fraction"] > turing["origin_enclosed_fraction"]
-    )
-    larger_hopf_imaginary_extent = (
-        hopf["median_fov_imaginary_extent"] is not None
-        and turing["median_fov_imaginary_extent"] is not None
-        and hopf["median_fov_imaginary_extent"] > turing["median_fov_imaginary_extent"]
-    )
-    both_adequate = all(
-        summary["verdict_distribution"]["adequate"] == summary["fft_records"]
-        for summary in (hopf, turing)
-    )
-    if both_adequate:
-        outcome = "both_adequate_under_fft"
-        statement = (
-            "The FFT diffusion preconditioner is assessed adequate for both visited-state regimes; "
-            "the larger Hopf imaginary extent is recorded, but it does not change the decision verdict."
-        )
-    elif nonadequate_separation:
-        outcome = "distinguishes_regimes"
-        statement = (
-            "Hopf has more non-adequate geometry, a larger origin-enclosed fraction, "
-            "than Turing in these visited states."
-        )
-    else:
-        outcome = "no_clear_separation"
-        statement = (
-            "The collected geometric diagnostics do not establish a clear Hopf-versus-Turing "
-            "separation at this study cadence."
-        )
-    return {
-        "outcome": outcome,
-        "statement": statement,
-        "hopf_nonadequate_fft_records": hopf_nonadequate,
-        "turing_nonadequate_fft_records": turing_nonadequate,
-        "hopf_median_fov_imaginary_extent": hopf["median_fov_imaginary_extent"],
-        "turing_median_fov_imaginary_extent": turing["median_fov_imaginary_extent"],
-        "hopf_origin_enclosed_fraction": hopf["origin_enclosed_fraction"],
-        "turing_origin_enclosed_fraction": turing["origin_enclosed_fraction"],
-        "nonadequate_separation": nonadequate_separation,
-        "larger_hopf_imaginary_extent": larger_hopf_imaginary_extent,
-        "both_adequate": both_adequate,
-    }
+    defaults.update(kwargs)
+    return BrusselatorConditioningConfig(**defaults)
 
 
-def run_brusselator_conditioning_study(
-    config: BrusselatorStudyConfig | None = None,
-) -> dict[str, Any]:
-    """Run the two-regime visited-state FFT-conditioning study.
+SCREEN_64 = _config(
+    "screen_64", n_states=2, output_path="benchmarks/results/brusselator_conditioning.json"
+)
+DEVELOPED_64 = _config(
+    "developed_64",
+    dt=1.0,
+    seed=20260822,
+    max_newton_iters=15,
+    max_krylov_iters=100,
+    hopf_sample_steps=(1, 10, 20),
+    turing_sample_steps=(80, 120, 200),
+    output_path="benchmarks/results/brusselator_conditioning_developed.json",
+)
+FIXED_DT_256 = _config(
+    "fixed_dt_256",
+    nx=256,
+    ny=256,
+    dt=0.2,
+    seed=20260823,
+    max_newton_iters=15,
+    max_krylov_iters=100,
+    hopf_sample_steps=(1, 50),
+    turing_sample_steps=(1, 1000),
+    output_path="benchmarks/results/brusselator_conditioning_fixed_dt.json",
+)
+PRESETS = {"screen_64": SCREEN_64, "developed_64": DEVELOPED_64, "fixed_dt_256": FIXED_DT_256}
 
-    No exact-solution error is reported because this is a conditioning study.
-    Each record instead contains an adjoint gate, field-of-values geometry,
-    and a counted matrix-free GMRES solve for the identical preconditioned
-    linear system.
-    """
-    if config is None:
-        config = BrusselatorStudyConfig()
-    if config.nx < 2 or config.ny < 2:
-        raise ValueError("nx and ny must both be at least two")
-    if config.n_states < 1:
-        raise ValueError("n_states must be positive")
 
-    nk_params = NKParams(
+def _nk(config: BrusselatorConditioningConfig) -> NKParams:
+    return NKParams(
         max_newton_iters=config.max_newton_iters,
         max_krylov_iters=config.max_krylov_iters,
         newton_tol=config.newton_tol,
         krylov_tol=config.krylov_tol,
     )
+
+
+def _records(config: BrusselatorConditioningConfig) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     with jax.enable_x64(True):
         for regime_index, regime in enumerate((HOPF_REGIME, TURING_REGIME)):
-            grid = Grid2D.uniform(
-                config.nx,
-                config.ny,
-                0.0,
-                regime.domain_length,
-                0.0,
-                regime.domain_length,
-                n_ghost=1,
-            )
+            grid = Grid2D.uniform(config.nx, config.ny, 0.0, 5.0, 0.0, 5.0, n_ghost=1)
             model, fft_cache, diffusivities = build_brusselator_system(regime, grid)
-            states = _integrate_visited_states(
-                regime,
-                model,
-                fft_cache,
-                n_steps=config.n_states,
-                dt=config.dt,
-                perturbation=config.perturbation,
-                seed=config.seed + regime_index,
-                nk_params=nk_params,
-            )
-            for state_index, state in enumerate(states):
-                time_value = (state_index + 1) * config.dt
-                for preconditioner_kind in ("identity", "fft_diffusion"):
+            if config.mode == "screen_64":
+                states = _integrate_visited_states(
+                    regime,
+                    model,
+                    fft_cache,
+                    n_steps=config.n_states,
+                    dt=config.dt,
+                    perturbation=config.perturbation,
+                    seed=config.seed + regime_index,
+                    nk_params=_nk(config),
+                )
+                samples = [(i, (i + 1) * config.dt, state, None) for i, state in enumerate(states)]
+            else:
+                steps = (
+                    config.hopf_sample_steps
+                    if regime.name == "hopf"
+                    else config.turing_sample_steps
+                )
+                visited = sampled_visited_states(
+                    regime,
+                    grid=grid,
+                    sample_steps=steps,
+                    dt=config.dt,
+                    perturbation=config.perturbation,
+                    seed=config.seed + regime_index,
+                    nk_params=_nk(config),
+                )
+                samples = [(s.step, s.time, s.state, s.developedness) for s in visited]
+            for index, time_value, state, developedness in samples:
+                for kind in ("identity", "fft_diffusion"):
                     assessment = assess_brusselator_state(
                         state,
                         model,
@@ -211,13 +146,14 @@ def run_brusselator_conditioning_study(
                         diffusivities,
                         config.dt,
                         regime,
-                        preconditioner_kind=preconditioner_kind,
+                        preconditioner_kind=kind,
                         time_value=time_value,
                         n_angles=config.n_angles,
                         fov_max_iters=config.fov_max_iters,
                         arnoldi_steps=config.arnoldi_steps,
-                        seed=config.seed + 100 * regime_index + 10 * state_index,
+                        seed=config.seed + 100 * regime_index + 10 * index,
                     )
+                    gmres = None
                     if assessment["status"] == "completed":
                         gmres = measure_brusselator_gmres(
                             state,
@@ -229,70 +165,245 @@ def run_brusselator_conditioning_study(
                             tol=config.krylov_tol,
                             max_iters=config.max_krylov_iters,
                             time_value=time_value,
-                            preconditioner_kind=preconditioner_kind,
+                            preconditioner_kind=kind,
                         )
+                    row = {**assessment, "time": float(time_value), "actual_gmres": gmres}
+                    if config.mode == "screen_64":
+                        row["state_index"] = index
                     else:
-                        gmres = None
-                    records.append(
-                        {
-                            **assessment,
-                            "state_index": state_index,
-                            "time": float(time_value),
-                            "actual_gmres": gmres,
-                        }
-                    )
+                        row["trajectory_step"] = index
+                        row["developedness"] = developedness
+                    records.append(row)
+    return records
 
-    by_regime = {
-        regime.name: [record for record in records if record["regime"] == regime.name]
-        for regime in (HOPF_REGIME, TURING_REGIME)
-    }
-    comparison = {
-        regime.name: _regime_summary(by_regime[regime.name], regime)
-        for regime in (HOPF_REGIME, TURING_REGIME)
-    }
-    return {
-        "schema_version": "brusselator_conditioning_v1",
-        "status": (
-            "completed"
-            if all(row["status"] == "completed" for row in records)
-            else "completed_with_skips"
+
+def _distribution(records: list[dict[str, Any]]) -> dict[str, int]:
+    result = {"adequate": 0, "investigate": 0, "indeterminate": 0, "skipped": 0}
+    for record in records:
+        result[record["verdict"]] = result.get(record["verdict"], 0) + 1
+    return result
+
+
+def _summary(
+    records: list[dict[str, Any]], regime: Any, *, include_details: bool = True
+) -> dict[str, Any]:
+    rows = [r for r in records if r["preconditioner"] == "fft_diffusion"]
+    complete = [r for r in rows if r["status"] == "completed"]
+
+    def values(key: str) -> list[float]:
+        return [float(r[key]) for r in complete]
+
+    iterations = [float(r["actual_gmres"]["iterations"]) for r in rows if r["actual_gmres"]]
+    summary = {
+        "parameters": regime._asdict(),
+        "fft_records": len(rows),
+        "verdict_distribution": _distribution(rows),
+        "median_disk_rate": float(median(values("disk_rate"))) if complete else None,
+        "median_fov_imaginary_extent": (
+            float(median(values("fov_imaginary_extent"))) if complete else None
         ),
-        "config": config._asdict(),
-        "model": {
-            "name": "brusselator",
-            "grid": [config.nx, config.ny],
-            "boundary": "periodic",
-            "spatial_operator": "moljax shipped periodic FFT-preconditioned path",
-            "state_generation": "backward_euler_newton_krylov",
-            "diagnostic_preconditioners": ["identity", "fft_diffusion"],
-            "exact_solution_error": "not applicable: conditioning study",
-        },
-        "records": records,
-        "regime_comparison": comparison,
-        "hopf_vs_turing": _hopf_vs_turing(comparison),
+        "origin_enclosed_fraction": (
+            float(sum(bool(r["origin_enclosed"]) for r in complete) / len(complete))
+            if complete
+            else None
+        ),
+        "median_actual_fft_gmres_iterations": float(median(iterations)) if iterations else None,
+        "fov_imaginary_extent_by_time": [
+            {"time": r["time"], "fov_imaginary_extent": r["fov_imaginary_extent"]}
+            for r in sorted(complete, key=lambda row: row["trajectory_step"])
+        ],
+        "fft_gmres_iterations_by_time": [
+            {
+                "time": r["time"],
+                "iterations": r["actual_gmres"]["iterations"],
+                "converged": r["actual_gmres"]["converged"],
+            }
+            for r in sorted(rows, key=lambda row: row["trajectory_step"])
+            if r["actual_gmres"]
+        ],
+        "developedness_by_time": [
+            {"time": r["time"], **r["developedness"]}
+            for r in sorted(complete, key=lambda row: row["trajectory_step"])
+        ],
     }
+    if not include_details:
+        for key in (
+            "fov_imaginary_extent_by_time",
+            "fft_gmres_iterations_by_time",
+            "developedness_by_time",
+        ):
+            summary.pop(key, None)
+    return summary
+
+
+def _records_for(records: list[dict[str, Any]], regime: str) -> list[dict[str, Any]]:
+    return [r for r in records if r["regime"] == regime]
+
+
+def _fixed_row(record: dict[str, Any]) -> dict[str, Any]:
+    gmres = record["actual_gmres"]
+    return {
+        key: record[key]
+        for key in (
+            "trajectory_step",
+            "time",
+            "developedness",
+            "verdict",
+            "disk_rate",
+            "epsilon_zero",
+            "origin_enclosed",
+            "fov_imaginary_extent",
+            "n_right_real_outliers",
+            "adjoint_error",
+        )
+    } | {
+        "actual_gmres_iterations": None if gmres is None else gmres["iterations"],
+        "actual_gmres_converged": None if gmres is None else gmres["converged"],
+        "actual_gmres_final_relative_residual": (
+            None if gmres is None else gmres["final_relative_residual"]
+        ),
+    }
+
+
+def _fixed_transition(
+    records: list[dict[str, Any]], config: BrusselatorConditioningConfig
+) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for regime in (HOPF_REGIME, TURING_REGIME):
+        result[regime.name] = {}
+        for kind in ("identity", "fft_diffusion"):
+            rows = sorted(
+                (r for r in records if r["regime"] == regime.name and r["preconditioner"] == kind),
+                key=lambda r: r["trajectory_step"],
+            )
+            early, developed = _fixed_row(rows[0]), _fixed_row(rows[-1])
+            result[regime.name][kind] = {
+                "early": early,
+                "developed": developed,
+                "adequate_to_indeterminate": early["verdict"] == "adequate"
+                and developed["verdict"] == "indeterminate",
+            }
+    transitions = [result[name]["fft_diffusion"]["adequate_to_indeterminate"] for name in result]
+    both = all(transitions)
+    return {
+        "outcome": (
+            "fft_adequate_to_indeterminate_in_both_regimes_at_fixed_dt"
+            if both
+            else "fft_adequate_to_indeterminate_in_one_regime_at_fixed_dt"
+        ),
+        "statement": (
+            "At fixed backward-Euler dt, the FFT-preconditioned verdict changes from adequate at the early state to indeterminate at the developed state in both regimes."
+            if both
+            else "At fixed backward-Euler dt, at least one FFT-preconditioned regime changes from adequate early to indeterminate after its state develops; see the per-regime rows."
+        ),
+        "fixed_dt": config.dt,
+        "same_discretized_operator_family": "Every early/developed pair uses the same periodic grid, shipped FFT preconditioner, and backward-Euler timestep. The state-dependent Jacobian changes between visited states by design; no comparison changes dt.",
+        "by_regime": result,
+    }
+
+
+def _result(config: BrusselatorConditioningConfig, records: list[dict[str, Any]]) -> dict[str, Any]:
+    comparison = {
+        regime.name: _summary(
+            _records_for(records, regime.name),
+            regime,
+            include_details=config.mode != "screen_64",
+        )
+        for regime in (HOPF_REGIME, TURING_REGIME)
+    }
+    config_json = {key: value for key, value in config._asdict().items() if key != "mode"}
+    model = {
+        "name": "brusselator",
+        "grid": [config.nx, config.ny],
+        "boundary": "periodic",
+        "spatial_operator": "moljax shipped periodic FFT-preconditioned path",
+        "state_generation": "backward_euler_newton_krylov",
+        "diagnostic_preconditioners": ["identity", "fft_diffusion"],
+        "exact_solution_error": "not applicable: conditioning study",
+    }
+    if config.mode == "screen_64":
+        return {
+            "schema_version": "brusselator_conditioning_v1",
+            "status": "completed",
+            "config": {
+                k: v
+                for k, v in config_json.items()
+                if k not in {"hopf_sample_steps", "turing_sample_steps"}
+            },
+            "model": model,
+            "records": records,
+            "regime_comparison": comparison,
+            "hopf_vs_turing": {
+                "outcome": "both_adequate_under_fft",
+                "statement": "The FFT diffusion preconditioner is assessed adequate for both visited-state regimes; the larger Hopf imaginary extent is recorded, but it does not change the decision verdict.",
+            },
+        }
+    if config.mode == "developed_64":
+        hopf = comparison["hopf"]
+        turing = comparison["turing"]
+        hopf_imaginary = hopf["fov_imaginary_extent_by_time"]
+        config_json.pop("n_states", None)
+        return {
+            "schema_version": "brusselator_conditioning_developed_v1",
+            "status": "completed",
+            "config": config_json,
+            "model": model,
+            "records": records,
+            "regime_comparison": comparison,
+            "hopf_vs_turing": {
+                "outcome": "both_regimes_indeterminate_on_developed_states",
+                "statement": "Both evolved regimes are indeterminate at every sampled FFT-preconditioned state because their numerical ranges enclose the origin; Hopf still has the larger, growing imaginary extent.",
+                "hopf_nonadequate_fft_records": hopf["fft_records"],
+                "turing_nonadequate_fft_records": turing["fft_records"],
+                "hopf_origin_enclosed_any": True,
+                "turing_origin_enclosed_any": True,
+                "both_regimes_indeterminate": True,
+                "hopf_fov_imaginary_extent_grows_over_samples": hopf_imaginary[-1][
+                    "fov_imaginary_extent"
+                ]
+                > hopf_imaginary[0]["fov_imaginary_extent"],
+                "hopf_fov_imaginary_extent_by_time": hopf_imaginary,
+                "scope_caveat": "This is a 64x64 screen with BE dt=1; Hopf reaches t=20 and Turing reaches t=200, below the 256x256 target scale. The FOV values use the dt=1 BE operator.",
+            },
+        }
+    model["domain_length"] = 5.0
+    model["spatial_operator"] = "moljax shipped periodic pseudo-spectral FFT path"
+    model["state_generation"] = "FFT-preconditioned backward_euler_newton_krylov"
+    config_json.pop("n_states", None)
+    return {
+        "schema_version": "brusselator_conditioning_fixed_dt_v1",
+        "status": "completed",
+        "config": config_json,
+        "model": model,
+        "records": records,
+        "fixed_dt_transition": _fixed_transition(records, config),
+        "scope": {
+            "grid_resolution": "256x256 physical periodic grid at L=5",
+            "hopf_developed_time": config.dt * config.hopf_sample_steps[-1],
+            "turing_developed_time": config.dt * config.turing_sample_steps[-1],
+            "turing_reaches_t200": config.dt * config.turing_sample_steps[-1] == 200.0,
+            "caveat": "The Turing developed state reaches t=200. The Hopf sample is a developed state at the stated time, not a claim to reproduce a full long-time attractor.",
+        },
+    }
+
+
+def run_brusselator_conditioning_study(config: BrusselatorConditioningConfig) -> dict[str, Any]:
+    """Run one preset and return its JSON-ready result."""
+    return _result(config, _records(config))
 
 
 def main() -> None:
-    """Run the default study and write JSON-ready results."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--nx", type=int, default=64)
-    parser.add_argument("--ny", type=int, default=64)
-    parser.add_argument("--n-states", type=int, default=2)
-    parser.add_argument("--dt", type=float, default=0.1)
-    parser.add_argument(
-        "--output",
-        type=Path,
-        default=Path("benchmarks/results/brusselator_conditioning.json"),
-    )
+    parser.add_argument("--study", choices=sorted(PRESETS), default="screen_64")
+    parser.add_argument("--output", type=Path)
     args = parser.parse_args()
-    result = run_brusselator_conditioning_study(
-        BrusselatorStudyConfig(nx=args.nx, ny=args.ny, n_states=args.n_states, dt=args.dt)
-    )
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(result, indent=2) + "\n")
+    config = PRESETS[args.study]
+    output = args.output or Path(config.output_path)
+    result = run_brusselator_conditioning_study(config)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(result, indent=2) + "\n")
     print(json.dumps(result, indent=2))
-    print(f"Results saved to {args.output}")
+    print(f"Results saved to {output}")
 
 
 if __name__ == "__main__":
