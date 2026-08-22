@@ -4,7 +4,7 @@ import math
 
 import numpy as np
 
-from moljax.core.device_dispatch import (
+from moljax.experimental.device_dispatch import (
     DevicePrimitives,
     DispatchPolicy,
     FFTPrimitiveCostModel,

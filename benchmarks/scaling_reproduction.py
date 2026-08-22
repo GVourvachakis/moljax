@@ -61,6 +61,7 @@ def memory_probe(
         dimension=2,
         size=size,
         repetitions=repetitions,
+        extra_warmups=1,
     )
     after_mib = gpu_memory_mib()
     measured_increment = max(0, (after_mib or 0) - (before_mib or 0))
@@ -107,7 +108,7 @@ def run_scaling_reproduction(
     *,
     output: Path = DEFAULT_OUTPUT,
     sizes: Sequence[int] = DEFAULT_SIZES,
-    repetitions: int = 7,
+    repetitions: int = 21,
 ) -> dict[str, Any]:
     """Measure CPU/GPU size scaling after a GPU memory safety probe."""
     devices = available_devices()
@@ -132,6 +133,7 @@ def run_scaling_reproduction(
                 dimension=2,
                 size=size,
                 repetitions=repetitions,
+                extra_warmups=1,
             )
             per_backend[backend] = timing
         cpu_seconds = per_backend["cpu"]["median_seconds"]
@@ -154,7 +156,7 @@ def run_scaling_reproduction(
     payload = {
         "schema": "scaling_reproduction_v1",
         "source": "locally measured moljax two-field FFT Helmholtz solves",
-        "timing_protocol": "one warmup excluded; synchronized median and IQR",
+        "timing_protocol": "two warmups excluded; synchronized median and IQR",
         "hardware": {
             "cpu": str(devices["cpu"]),
             "gpu": str(devices["gpu"]),
@@ -184,9 +186,12 @@ def main() -> None:
     """Run the guarded local CPU/GPU scaling study."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
-    parser.add_argument("--repetitions", type=int, default=7)
+    parser.add_argument("--repetitions", type=int, default=21)
     arguments = parser.parse_args()
-    result = run_scaling_reproduction(output=arguments.output, repetitions=arguments.repetitions)
+    result = run_scaling_reproduction(
+        output=arguments.output,
+        repetitions=arguments.repetitions,
+    )
     summary = result["trend"] if "trend" in result else {"status": result["status"]}
     print(json.dumps(summary, sort_keys=True))
 

@@ -17,13 +17,6 @@ jax.config.update("jax_enable_x64", True)
 
 import jax.numpy as jnp
 
-from moljax.core.device_dispatch import (
-    DevicePrimitives,
-    DispatchPolicy,
-    FFTPrimitiveCostModel,
-    TimingSample,
-    leave_one_size_out,
-)
 from moljax.core.fft_solvers import (
     laplacian_symbol_1d,
     laplacian_symbol_2d,
@@ -31,6 +24,13 @@ from moljax.core.fft_solvers import (
     solve_helmholtz_2d,
 )
 from moljax.core.gpu_benchmarks import DeviceInfo, measure_device_primitives
+from moljax.experimental.device_dispatch import (
+    DevicePrimitives,
+    DispatchPolicy,
+    FFTPrimitiveCostModel,
+    TimingSample,
+    leave_one_size_out,
+)
 
 try:
     from benchmarks.benchmark_utils import time_call
@@ -85,6 +85,7 @@ def _two_field_helmholtz_call(device: Any, dimension: int, size: int):
 
         else:
             raise ValueError("dimension must be 1 or 2")
+
         compiled = jax.jit(solve)
         return lambda: compiled(rhs_u, rhs_v, symbol)
 
@@ -96,9 +97,14 @@ def measure_helmholtz_timing(
     dimension: int,
     size: int,
     repetitions: int,
+    extra_warmups: int = 0,
 ) -> tuple[TimingSample, dict[str, Any]]:
     """Time the same two-field FFT diffusion preconditioner on one device."""
     call = _two_field_helmholtz_call(device, dimension, size)
+    if extra_warmups < 0:
+        raise ValueError("extra_warmups must be non-negative")
+    for _ in range(extra_warmups):
+        jax.tree_util.tree_map(lambda value: value.block_until_ready(), call())
     _, median_seconds, iqr_seconds, _ = time_call(call, n_reps=repetitions)
     workload = f"fft_helmholtz_{dimension}d"
     unknowns = 2 * size if dimension == 1 else 2 * size * size
@@ -113,6 +119,7 @@ def measure_helmholtz_timing(
         "median_seconds": median_seconds,
         "iqr_seconds": iqr_seconds,
         "repetitions": repetitions,
+        "warmups": 1 + extra_warmups,
     }
 
 
