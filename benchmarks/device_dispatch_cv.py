@@ -42,6 +42,7 @@ RESULTS_DIR = Path(__file__).with_name("results")
 DEFAULT_OUTPUT = RESULTS_DIR / "device_dispatch_cv.json"
 DEFAULT_SIZES_1D = (256, 512, 1024, 2048)
 DEFAULT_SIZES_2D = (64, 128, 256, 512)
+CROSSOVER_ADJACENT_FACTOR = 1.5
 
 
 def available_devices() -> dict[str, Any]:
@@ -176,6 +177,103 @@ def _validation_rows(validation) -> list[dict[str, Any]]:
     return rows
 
 
+def _interpretation(validation, timing_rows: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    """Summarize whether held-out regret tests a non-trivial backend choice."""
+    cases: dict[tuple[str, int], list[dict[str, Any]]] = {}
+    for timing in timing_rows:
+        key = (str(timing["workload"]), int(timing["grid_size"]))
+        cases.setdefault(key, []).append(timing)
+
+    comparable_cases: list[tuple[str, int, str, float, bool]] = []
+    fastest_backend_counts: dict[str, dict[str, int]] = {}
+    for (workload, size), timings in sorted(cases.items()):
+        if len(timings) < 2:
+            continue
+        ranked = sorted(timings, key=lambda timing: float(timing["median_seconds"]))
+        fastest = ranked[0]
+        fastest_time = float(fastest["median_seconds"])
+        second_time = float(ranked[1]["median_seconds"])
+        second_best_factor = second_time / fastest_time
+        is_crossover_adjacent = second_best_factor <= CROSSOVER_ADJACENT_FACTOR
+        comparable_cases.append(
+            (workload, size, str(fastest["backend"]), second_best_factor, is_crossover_adjacent)
+        )
+        per_workload = fastest_backend_counts.setdefault(workload, {})
+        backend = str(fastest["backend"])
+        per_workload[backend] = per_workload.get(backend, 0) + 1
+
+    n_comparable = len(comparable_cases)
+    n_crossover_adjacent = sum(case[-1] for case in comparable_cases)
+    n_blowout = n_comparable - n_crossover_adjacent
+    model_fit: list[dict[str, Any]] = []
+    n_negative_q2 = 0
+    for summary in sorted(
+        validation.model_summaries,
+        key=lambda item: (item.workload, item.backend),
+    ):
+        q2 = _json_float(summary.q2)
+        negative_q2 = q2 is not None and q2 < 0.0
+        n_negative_q2 += int(negative_q2)
+        model_fit.append(
+            {
+                "workload": summary.workload,
+                "backend": summary.backend,
+                "q2": q2,
+                "fit_status": (
+                    "cost model does not fit; predictions unreliable for this backend/workload"
+                    if negative_q2
+                    else "non-negative q2 on this size ladder"
+                ),
+            }
+        )
+
+    mean_regret = validation.overall_mean_regret
+    max_regret = validation.overall_max_regret
+    easy_decision_regime = (
+        mean_regret <= 1.0 + 1.0e-12
+        and max_regret <= 1.0 + 1.0e-12
+        and n_blowout > n_crossover_adjacent
+    )
+    if easy_decision_regime:
+        caveat = (
+            "low regret reflects an easy decision regime, not a validated predictor; "
+            "a workload spanning the CPU/GPU crossover is needed to test the dispatcher's discrimination."
+        )
+    elif n_comparable == 0:
+        caveat = "no size has more than one timed backend, so dispatch discrimination is untested."
+    else:
+        caveat = (
+            "held-out regret includes crossover-adjacent decisions, but fit diagnostics should be considered "
+            "alongside regret when judging predictive quality."
+        )
+
+    return {
+        "heldout_regret": {
+            "mean": mean_regret,
+            "max": max_regret,
+            "summary": (
+                f"mean held-out regret={mean_regret:.6f}; max held-out regret={max_regret:.6f}"
+            ),
+        },
+        "decision_regime": {
+            "crossover_adjacent_factor": CROSSOVER_ADJACENT_FACTOR,
+            "heldout_sizes": len(validation.holdouts),
+            "backend_comparable_holdout_sizes": n_comparable,
+            "crossover_adjacent_holdout_sizes": n_crossover_adjacent,
+            "blowout_holdout_sizes": n_blowout,
+            "fastest_backend_counts": fastest_backend_counts,
+            "summary": (
+                f"{n_crossover_adjacent} of {n_comparable} backend-comparable held-out sizes are "
+                f"crossover-adjacent (second-best within {CROSSOVER_ADJACENT_FACTOR:.1f}x); "
+                f"{n_blowout} are blowout decisions."
+            ),
+        },
+        "model_fit": model_fit,
+        "negative_q2_model_count": n_negative_q2,
+        "caveat": caveat,
+    }
+
+
 def run_device_dispatch_cv(
     *,
     output: Path = DEFAULT_OUTPUT,
@@ -227,6 +325,7 @@ def run_device_dispatch_cv(
             "mean_regret": validation.overall_mean_regret,
             "max_regret": validation.overall_max_regret,
         },
+        "interpretation": _interpretation(validation, timing_rows),
     }
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")

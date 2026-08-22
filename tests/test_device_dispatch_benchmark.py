@@ -27,3 +27,10 @@ def test_gpu_dispatch_benchmark_smoke(tmp_path: Path):
     assert output.is_file()
     assert result["overall"]["mean_regret"] >= 1.0
     assert any(row["row_type"] == "holdout" for row in result["rows"])
+    interpretation = result["interpretation"]
+    decision_regime = interpretation["decision_regime"]
+    assert decision_regime["backend_comparable_holdout_sizes"] == (
+        decision_regime["crossover_adjacent_holdout_sizes"]
+        + decision_regime["blowout_holdout_sizes"]
+    )
+    assert len(interpretation["model_fit"]) == 4
