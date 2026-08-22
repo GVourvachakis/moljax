@@ -501,8 +501,9 @@
   "scope": {
     "grid_resolution": "256x256 physical periodic grid at L=5",
     "hopf_developed_time": 10.0,
+    "hopf_continuation_failure_time": 18.6,
     "turing_developed_time": 200.0,
-    "turing_reaches_paper_t200": true,
+    "turing_reaches_t200": true,
     "caveat": "The Turing developed state reaches t=200.  The Hopf sample is a developed state at the stated time, not a claim to reproduce a full long-time attractor unless its recorded developedness supports that interpretation."
   }
 }
