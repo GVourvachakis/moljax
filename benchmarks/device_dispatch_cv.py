@@ -43,6 +43,7 @@ DEFAULT_OUTPUT = RESULTS_DIR / "device_dispatch_cv.json"
 DEFAULT_SIZES_1D = (256, 512, 1024, 2048)
 DEFAULT_SIZES_2D = (64, 128, 256, 512)
 CROSSOVER_ADJACENT_FACTOR = 1.5
+CROSSOVER_SPEEDUP_RANGE = (0.7, 1.5)
 
 
 def available_devices() -> dict[str, Any]:
@@ -177,34 +178,109 @@ def _validation_rows(validation) -> list[dict[str, Any]]:
     return rows
 
 
-def _interpretation(validation, timing_rows: Sequence[dict[str, Any]]) -> dict[str, Any]:
-    """Summarize whether held-out regret tests a non-trivial backend choice."""
+def _per_size_reliability(timing_rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Classify CPU/GPU winner determination using their median-plus-IQR bands."""
     cases: dict[tuple[str, int], list[dict[str, Any]]] = {}
     for timing in timing_rows:
-        key = (str(timing["workload"]), int(timing["grid_size"]))
+        key = (str(timing["workload"]), int(timing["unknowns"]))
         cases.setdefault(key, []).append(timing)
 
-    comparable_cases: list[tuple[str, int, str, float, bool]] = []
-    fastest_backend_counts: dict[str, dict[str, int]] = {}
+    reliability: list[dict[str, Any]] = []
     for (workload, size), timings in sorted(cases.items()):
-        if len(timings) < 2:
+        by_backend = {str(timing["backend"]): timing for timing in timings}
+        if "cpu" not in by_backend or "gpu" not in by_backend:
             continue
-        ranked = sorted(timings, key=lambda timing: float(timing["median_seconds"]))
-        fastest = ranked[0]
-        fastest_time = float(fastest["median_seconds"])
-        second_time = float(ranked[1]["median_seconds"])
-        second_best_factor = second_time / fastest_time
-        is_crossover_adjacent = second_best_factor <= CROSSOVER_ADJACENT_FACTOR
-        comparable_cases.append(
-            (workload, size, str(fastest["backend"]), second_best_factor, is_crossover_adjacent)
+
+        cpu = by_backend["cpu"]
+        gpu = by_backend["gpu"]
+        cpu_median = float(cpu["median_seconds"])
+        gpu_median = float(gpu["median_seconds"])
+        cpu_iqr = float(cpu["iqr_seconds"])
+        gpu_iqr = float(gpu["iqr_seconds"])
+        fastest, slower = (cpu, gpu) if cpu_median <= gpu_median else (gpu, cpu)
+        fastest_median = float(fastest["median_seconds"])
+        fastest_iqr = float(fastest["iqr_seconds"])
+        slower_median = float(slower["median_seconds"])
+        slower_iqr = float(slower["iqr_seconds"])
+        robust = fastest_median + fastest_iqr < slower_median - slower_iqr
+        speedup = cpu_median / gpu_median
+        reliability.append(
+            {
+                "workload": workload,
+                "dimension": int(cpu["dimension"]),
+                "grid_size": int(cpu["grid_size"]),
+                "unknowns": size,
+                "cpu_median_seconds": cpu_median,
+                "cpu_iqr_seconds": cpu_iqr,
+                "cpu_iqr_band_seconds": [cpu_median - cpu_iqr, cpu_median + cpu_iqr],
+                "gpu_median_seconds": gpu_median,
+                "gpu_iqr_seconds": gpu_iqr,
+                "gpu_iqr_band_seconds": [gpu_median - gpu_iqr, gpu_median + gpu_iqr],
+                "gpu_speedup": speedup,
+                "fastest_backend": str(fastest["backend"]),
+                "classification": "ROBUST" if robust else "NOISE_DOMINATED",
+                "crossover_adjacent": (
+                    CROSSOVER_SPEEDUP_RANGE[0] <= speedup <= CROSSOVER_SPEEDUP_RANGE[1]
+                ),
+            }
         )
-        per_workload = fastest_backend_counts.setdefault(workload, {})
-        backend = str(fastest["backend"])
+    return reliability
+
+
+def _regret_summary(holdouts: Sequence[Any]) -> dict[str, float | int | None]:
+    """Return a transparent regret aggregate for a selected holdout subset."""
+    regrets = [float(holdout.regret) for holdout in holdouts]
+    if not regrets:
+        return {"n_holdouts": 0, "mean_regret": None, "max_regret": None}
+    return {
+        "n_holdouts": len(regrets),
+        "mean_regret": float(sum(regrets) / len(regrets)),
+        "max_regret": max(regrets),
+    }
+
+
+def _interpretation(
+    validation, timing_rows: Sequence[dict[str, Any]], reliability: Sequence[dict[str, Any]]
+) -> dict[str, Any]:
+    """Summarize LOO regret together with per-size winner reliability."""
+    reliability_by_case = {
+        (str(record["workload"]), int(record["unknowns"])): record for record in reliability
+    }
+    fastest_backend_counts: dict[str, dict[str, int]] = {}
+    for record in reliability:
+        per_workload = fastest_backend_counts.setdefault(str(record["workload"]), {})
+        backend = str(record["fastest_backend"])
         per_workload[backend] = per_workload.get(backend, 0) + 1
 
-    n_comparable = len(comparable_cases)
-    n_crossover_adjacent = sum(case[-1] for case in comparable_cases)
+    holdout_reliability: list[dict[str, Any]] = []
+    robust_crossover_holdouts = []
+    for holdout in validation.holdouts:
+        record = reliability_by_case.get((holdout.workload, holdout.size))
+        if record is None:
+            continue
+        is_robust_crossover = record["classification"] == "ROBUST" and record["crossover_adjacent"]
+        if is_robust_crossover:
+            robust_crossover_holdouts.append(holdout)
+        holdout_reliability.append(
+            {
+                "workload": holdout.workload,
+                "grid_size": record["grid_size"],
+                "unknowns": holdout.size,
+                "selected_backend": holdout.selected_backend,
+                "actual_fastest_backend": holdout.fastest_backend,
+                "heldout_regret": holdout.regret,
+                "classification": record["classification"],
+                "crossover_adjacent": record["crossover_adjacent"],
+            }
+        )
+
+    n_comparable = len(reliability)
+    crossover_records = [record for record in reliability if record["crossover_adjacent"]]
+    n_crossover_adjacent = len(crossover_records)
     n_blowout = n_comparable - n_crossover_adjacent
+    n_robust_crossover = sum(record["classification"] == "ROBUST" for record in crossover_records)
+    n_noise_dominated_crossover = n_crossover_adjacent - n_robust_crossover
+
     model_fit: list[dict[str, Any]] = []
     n_negative_q2 = 0
     for summary in sorted(
@@ -227,6 +303,8 @@ def _interpretation(validation, timing_rows: Sequence[dict[str, Any]]) -> dict[s
             }
         )
 
+    all_regret = _regret_summary(validation.holdouts)
+    robust_crossover_regret = _regret_summary(robust_crossover_holdouts)
     mean_regret = validation.overall_mean_regret
     max_regret = validation.overall_max_regret
     easy_decision_regime = (
@@ -234,7 +312,17 @@ def _interpretation(validation, timing_rows: Sequence[dict[str, Any]]) -> dict[s
         and max_regret <= 1.0 + 1.0e-12
         and n_blowout > n_crossover_adjacent
     )
-    if easy_decision_regime:
+    if n_robust_crossover == 0:
+        caveat = (
+            "no robust crossover-adjacent held-out size is available; this workload cannot cleanly "
+            "validate dispatch discrimination on the current hardware."
+        )
+    elif (robust_crossover_regret["max_regret"] or 1.0) > 1.0 + 1.0e-12:
+        caveat = (
+            "at least one robust crossover-adjacent held-out size is a genuine dispatch miss; "
+            "the current calibration is not validated as a reliable crossover predictor."
+        )
+    elif easy_decision_regime:
         caveat = (
             "low regret reflects an easy decision regime, not a validated predictor; "
             "a workload spanning the CPU/GPU crossover is needed to test the dispatcher's discrimination."
@@ -249,25 +337,31 @@ def _interpretation(validation, timing_rows: Sequence[dict[str, Any]]) -> dict[s
 
     return {
         "heldout_regret": {
-            "mean": mean_regret,
-            "max": max_regret,
+            "all_holdouts": all_regret,
+            "robust_crossover_adjacent_holdouts": robust_crossover_regret,
             "summary": (
-                f"mean held-out regret={mean_regret:.6f}; max held-out regret={max_regret:.6f}"
+                f"all held-outs: mean regret={mean_regret:.6f}; max regret={max_regret:.6f}; "
+                f"robust crossover-adjacent holdouts={n_robust_crossover}"
             ),
         },
         "decision_regime": {
             "crossover_adjacent_factor": CROSSOVER_ADJACENT_FACTOR,
+            "crossover_speedup_range": list(CROSSOVER_SPEEDUP_RANGE),
             "heldout_sizes": len(validation.holdouts),
             "backend_comparable_holdout_sizes": n_comparable,
             "crossover_adjacent_holdout_sizes": n_crossover_adjacent,
+            "robust_crossover_adjacent_holdout_sizes": n_robust_crossover,
+            "noise_dominated_crossover_adjacent_holdout_sizes": n_noise_dominated_crossover,
             "blowout_holdout_sizes": n_blowout,
             "fastest_backend_counts": fastest_backend_counts,
             "summary": (
                 f"{n_crossover_adjacent} of {n_comparable} backend-comparable held-out sizes are "
-                f"crossover-adjacent (second-best within {CROSSOVER_ADJACENT_FACTOR:.1f}x); "
-                f"{n_blowout} are blowout decisions."
+                f"crossover-adjacent (CPU/GPU speedup in {CROSSOVER_SPEEDUP_RANGE[0]:.1f}x--"
+                f"{CROSSOVER_SPEEDUP_RANGE[1]:.1f}x): {n_robust_crossover} ROBUST and "
+                f"{n_noise_dominated_crossover} NOISE_DOMINATED; {n_blowout} are blowout decisions."
             ),
         },
+        "holdout_reliability": holdout_reliability,
         "model_fit": model_fit,
         "negative_q2_model_count": n_negative_q2,
         "caveat": caveat,
@@ -311,6 +405,7 @@ def run_device_dispatch_cv(
         primitives=primitives,
         policy=DispatchPolicy(fallback_backend="cpu"),
     )
+    reliability = _per_size_reliability(timing_rows)
     payload = {
         "schema": "device_dispatch_cv_v1",
         "source": "locally measured moljax two-field FFT Helmholtz solves",
@@ -319,13 +414,21 @@ def run_device_dispatch_cv(
         "device_primitives": {
             backend: asdict(measurement) for backend, measurement in primitive_measurements.items()
         },
+        "config": {
+            "sizes_1d": list(sizes_1d),
+            "sizes_2d": list(sizes_2d),
+            "repetitions": repetitions,
+            "warmups": 2,
+            "crossover_speedup_range": list(CROSSOVER_SPEEDUP_RANGE),
+        },
         "timings": timing_rows,
+        "per_size_reliability": reliability,
         "rows": _validation_rows(validation),
         "overall": {
             "mean_regret": validation.overall_mean_regret,
             "max_regret": validation.overall_max_regret,
         },
-        "interpretation": _interpretation(validation, timing_rows),
+        "interpretation": _interpretation(validation, timing_rows, reliability),
     }
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")

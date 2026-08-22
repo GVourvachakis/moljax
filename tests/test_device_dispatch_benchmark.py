@@ -5,6 +5,55 @@ from pathlib import Path
 import jax
 import pytest
 
+from benchmarks.device_dispatch_cv import _per_size_reliability
+
+
+def test_per_size_reliability_marks_overlapping_iqr_bands_as_noise_dominated():
+    """A crossover winner is useful only when the timing bands are separable."""
+    rows = [
+        {
+            "workload": "fft_helmholtz_2d",
+            "dimension": 2,
+            "grid_size": 96,
+            "unknowns": 18_432,
+            "backend": "cpu",
+            "median_seconds": 1.0,
+            "iqr_seconds": 0.05,
+        },
+        {
+            "workload": "fft_helmholtz_2d",
+            "dimension": 2,
+            "grid_size": 96,
+            "unknowns": 18_432,
+            "backend": "gpu",
+            "median_seconds": 1.2,
+            "iqr_seconds": 0.05,
+        },
+        {
+            "workload": "fft_helmholtz_2d",
+            "dimension": 2,
+            "grid_size": 104,
+            "unknowns": 21_632,
+            "backend": "cpu",
+            "median_seconds": 1.0,
+            "iqr_seconds": 0.2,
+        },
+        {
+            "workload": "fft_helmholtz_2d",
+            "dimension": 2,
+            "grid_size": 104,
+            "unknowns": 21_632,
+            "backend": "gpu",
+            "median_seconds": 1.1,
+            "iqr_seconds": 0.2,
+        },
+    ]
+
+    reliability = _per_size_reliability(rows)
+
+    assert [record["classification"] for record in reliability] == ["ROBUST", "NOISE_DOMINATED"]
+    assert all(record["crossover_adjacent"] for record in reliability)
+
 
 @pytest.mark.slow
 def test_gpu_dispatch_benchmark_smoke(tmp_path: Path):

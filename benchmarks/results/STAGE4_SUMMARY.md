@@ -27,28 +27,33 @@ not as portable speedup claims.
 
 Source: `benchmarks/results/device_dispatch_cv.json`.
 
-The fresh 21-repetition, two-warmup LOO run has mean and worst regret 1.000.
-That is an easy-decision result, not evidence that the calibration is a strong
-predictor: 0 of 8 backend-comparable held-out sizes are crossover-adjacent
-(second-best backend within 1.5×); all 8 are blowouts. In the current run,
-CPU is fastest at all four 1D sizes and at one 2D size, while GPU is fastest at
-the other three 2D sizes. A workload spanning the CPU/GPU crossover is needed
-to test dispatch discrimination. This is the same "perfect regret" shape
-Pavlov flagged as overfitting-adjacent: it is a property of the easy ladder,
-not proof of a generally predictive dispatcher.
+The dense 2D ladder samples 48²--128² in steps of 8, plus 160² and 256²,
+using 41 repetitions and two excluded warmups. It locates a resolvable part of
+the crossover: CPU is robustly faster at 88² (CPU/GPU = 0.792×) and GPU is
+robustly faster at 112² (1.359×) and 128² (1.331×). Four of the seven
+crossover-adjacent sizes are nevertheless noise-dominated by overlapping
+median-plus-IQR bands (48², 96², 104², and 120²).
 
-The interpretation block records per-backend q2. In this particular repeat,
-they are 0.911 (1D CPU), 0.695 (1D GPU), 0.953 (2D CPU), and 0.986 (2D GPU),
-so no current model is flagged negative. This does not rescue the predictor
-claim: the immediately preceding matched-protocol JSON
-(`benchmarks/results/device_dispatch_cv.json` at commit `9c7a249`) reported
-CPU q2 values -15.091 (1D) and -21.890 (2D). That sign change under the same
-timing protocol makes fit quality timing-sensitive; perfect regret in the
-blowout-only ladder is not a validation of general predictive accuracy.
+LOO regret over all 13 held-out sizes is mean 1.075 and worst 1.544. The
+meaningful reliability-filtered subset contains the three robust
+crossover-adjacent cases: its mean regret is 1.088 and worst regret is 1.263.
+The policy chooses the correct backend at 112² and 128² but incorrectly picks
+GPU at the robust 88² CPU-win (1.263 regret). Thus this denser ladder rules out
+the earlier easy-regime interpretation, but it does not validate the current
+dispatcher as a reliable crossover predictor on this hardware: only three
+near-crossover cases are resolvable, one is a genuine held-out miss, and four
+are noise-dominated.
+
+The held-out fit diagnostics reinforce that limitation: CPU q2 is 0.368 with
+L2 error 5.09e-3 seconds, while GPU q2 is -1.222 with L2 error 1.89e-4
+seconds. The negative GPU q2 explicitly flags the FFT-primitive model as an
+unreliable predictor for this workload/backend. A refined cost model and a
+lower-variance crossover measurement are required before promoting dispatch
+selection beyond experimental status.
 
 ## Status
 
-This is a proactive experimental contribution, not a PR-ready public API. A
-crossover-regime workload is required before the dispatcher validation is
-compelling. The scaling reproduction remains useful on its own as an honest
-confirmation of the local FFT/GPU size trend.
+This is a proactive experimental contribution, not a PR-ready public API. The
+dense crossover measurement gives an honest partial test, not a successful
+validation of the current predictor. The scaling reproduction remains useful
+on its own as an honest confirmation of the local FFT/GPU size trend.
