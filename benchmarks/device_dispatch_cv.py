@@ -181,7 +181,7 @@ def run_device_dispatch_cv(
     output: Path = DEFAULT_OUTPUT,
     sizes_1d: Sequence[int] = DEFAULT_SIZES_1D,
     sizes_2d: Sequence[int] = DEFAULT_SIZES_2D,
-    repetitions: int = 7,
+    repetitions: int = 21,
 ) -> dict[str, Any]:
     """Generate a new leave-one-size-out report from locally timed solves."""
     devices = available_devices()
@@ -203,6 +203,7 @@ def run_device_dispatch_cv(
                     dimension=dimension,
                     size=size,
                     repetitions=repetitions,
+                    extra_warmups=1,
                 )
                 samples.append(sample)
                 timing_rows.append(row)
@@ -215,7 +216,7 @@ def run_device_dispatch_cv(
     payload = {
         "schema": "device_dispatch_cv_v1",
         "source": "locally measured moljax two-field FFT Helmholtz solves",
-        "timing_protocol": "one warmup excluded; synchronized median and IQR",
+        "timing_protocol": "two warmups excluded; synchronized median and IQR",
         "devices": {backend: str(device) for backend, device in devices.items()},
         "device_primitives": {
             backend: asdict(measurement) for backend, measurement in primitive_measurements.items()
@@ -236,7 +237,7 @@ def main() -> None:
     """Run the local calibration and print its held-out regret summary."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
-    parser.add_argument("--repetitions", type=int, default=7)
+    parser.add_argument("--repetitions", type=int, default=21)
     arguments = parser.parse_args()
     result = run_device_dispatch_cv(output=arguments.output, repetitions=arguments.repetitions)
     print(

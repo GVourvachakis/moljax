@@ -2,20 +2,20 @@
   "device_primitives": {
     "cpu": {
       "device": "TFRT_CPU_0",
-      "fft_iqr_seconds": 5.235522985458374e-05,
-      "fft_seconds": 0.00040869973599910736,
+      "fft_iqr_seconds": 3.11853364109993e-06,
+      "fft_seconds": 0.0001444472000002861,
       "fft_size": 16384,
-      "launch_iqr_seconds": 8.749775588512421e-07,
-      "launch_seconds": 6.171874701976776e-06,
+      "launch_iqr_seconds": 1.0682269930839539e-06,
+      "launch_seconds": 8.306466042995453e-06,
       "repetitions": 11
     },
     "gpu": {
       "device": "cuda:0",
-      "fft_iqr_seconds": 2.5168992578983307e-06,
-      "fft_seconds": 0.0001858789473772049,
+      "fft_iqr_seconds": 4.596402868628502e-05,
+      "fft_seconds": 0.00021610315889120102,
       "fft_size": 16384,
-      "launch_iqr_seconds": 5.5874697864055634e-05,
-      "launch_seconds": 2.9867514967918396e-05,
+      "launch_iqr_seconds": 4.70881350338459e-05,
+      "launch_seconds": 2.9462389647960663e-05,
       "repetitions": 11
     }
   },
@@ -24,119 +24,119 @@
     "gpu": "cuda:0"
   },
   "overall": {
-    "max_regret": 1.1126054569263466,
-    "mean_regret": 1.0140756821157932
+    "max_regret": 1.0,
+    "mean_regret": 1.0
   },
   "rows": [
     {
       "M": 512,
       "actual_fastest_backend": "cpu",
-      "actual_seconds": 2.799462527036667e-05,
+      "actual_seconds": 1.902785152196884e-05,
       "heldout_regret": 1.0,
       "predicted_backend": "cpu",
-      "predicted_seconds": 4.1760797698814243e-05,
+      "predicted_seconds": 3.7239397024337865e-05,
       "row_type": "holdout",
       "workload": "fft_helmholtz_1d"
     },
     {
       "M": 1024,
       "actual_fastest_backend": "cpu",
-      "actual_seconds": 3.889203071594238e-05,
+      "actual_seconds": 2.171192318201065e-05,
       "heldout_regret": 1.0,
       "predicted_backend": "cpu",
-      "predicted_seconds": 3.683121413290811e-05,
+      "predicted_seconds": 3.6542265260092195e-05,
       "row_type": "holdout",
       "workload": "fft_helmholtz_1d"
     },
     {
       "M": 2048,
       "actual_fastest_backend": "cpu",
-      "actual_seconds": 5.2731484174728394e-05,
+      "actual_seconds": 6.289687007665634e-05,
       "heldout_regret": 1.0,
       "predicted_backend": "cpu",
-      "predicted_seconds": 4.043199388486043e-05,
+      "predicted_seconds": 2.755433544343093e-05,
       "row_type": "holdout",
       "workload": "fft_helmholtz_1d"
     },
     {
       "M": 4096,
       "actual_fastest_backend": "cpu",
-      "actual_seconds": 6.304308772087097e-05,
+      "actual_seconds": 5.065649747848511e-05,
       "heldout_regret": 1.0,
       "predicted_backend": "cpu",
-      "predicted_seconds": 0.00011887994428314659,
+      "predicted_seconds": 0.00019484380668136962,
       "row_type": "holdout",
       "workload": "fft_helmholtz_1d"
     },
     {
       "M": 8192,
       "actual_fastest_backend": "gpu",
-      "actual_seconds": 0.0001930762082338333,
-      "heldout_regret": 1.1126054569263466,
-      "predicted_backend": "cpu",
-      "predicted_seconds": 5.641122149545137e-05,
+      "actual_seconds": 0.00014305580407381058,
+      "heldout_regret": 1.0,
+      "predicted_backend": "gpu",
+      "predicted_seconds": 0.00015932410756320421,
       "row_type": "holdout",
       "workload": "fft_helmholtz_2d"
     },
     {
       "M": 32768,
       "actual_fastest_backend": "gpu",
-      "actual_seconds": 0.00023110955953598022,
+      "actual_seconds": 0.0001745074987411499,
       "heldout_regret": 1.0,
       "predicted_backend": "gpu",
-      "predicted_seconds": 0.00017267550251136575,
+      "predicted_seconds": 0.0001616588661648404,
       "row_type": "holdout",
       "workload": "fft_helmholtz_2d"
     },
     {
       "M": 131072,
       "actual_fastest_backend": "gpu",
-      "actual_seconds": 0.00025789160281419754,
+      "actual_seconds": 0.0002610469236969948,
       "heldout_regret": 1.0,
       "predicted_backend": "gpu",
-      "predicted_seconds": 0.00030834413375795664,
+      "predicted_seconds": 0.0002576329006412674,
       "row_type": "holdout",
       "workload": "fft_helmholtz_2d"
     },
     {
       "M": 524288,
       "actual_fastest_backend": "gpu",
-      "actual_seconds": 0.0008840812370181084,
+      "actual_seconds": 0.0007940372452139854,
       "heldout_regret": 1.0,
       "predicted_backend": "gpu",
-      "predicted_seconds": 0.0005893752861641855,
+      "predicted_seconds": 0.0008263466342786844,
       "row_type": "holdout",
       "workload": "fft_helmholtz_2d"
     },
     {
       "backend": "cpu",
-      "l2_error_seconds": 5.884544570708389e-05,
+      "l2_error_seconds": 0.00015030194385039314,
       "n_sizes": 4,
-      "q2": -3.876831697083948,
+      "q2": -15.090564175644456,
       "row_type": "model_summary",
       "workload": "fft_helmholtz_1d"
     },
     {
       "backend": "gpu",
-      "l2_error_seconds": 6.161115381053095e-05,
+      "l2_error_seconds": 3.695272490411027e-05,
       "n_sizes": 4,
-      "q2": 0.6958084568719931,
+      "q2": 0.7352631892145094,
       "row_type": "model_summary",
       "workload": "fft_helmholtz_1d"
     },
     {
       "backend": "cpu",
-      "l2_error_seconds": 0.007322444272669297,
+      "l2_error_seconds": 0.03178150876572376,
       "n_sizes": 4,
-      "q2": 0.8652155322540955,
+      "q2": -21.89014451462777,
       "row_type": "model_summary",
       "workload": "fft_helmholtz_2d"
     },
     {
       "backend": "gpu",
-      "l2_error_seconds": 0.00030480135864420656,
+      "l2_error_seconds": 3.853955413160805e-05,
       "n_sizes": 4,
-      "q2": 0.7215339809978907,
+      "q2": 0.994667144851025,
       "row_type": "model_summary",
       "workload": "fft_helmholtz_2d"
     },
@@ -148,32 +148,33 @@
       "workload": "fft_helmholtz_1d"
     },
     {
-      "max_regret": 1.1126054569263466,
-      "mean_regret": 1.0281513642315867,
+      "max_regret": 1.0,
+      "mean_regret": 1.0,
       "n_sizes": 4,
       "row_type": "case_summary",
       "workload": "fft_helmholtz_2d"
     },
     {
-      "max_regret": 1.1126054569263466,
-      "mean_regret": 1.0140756821157932,
+      "max_regret": 1.0,
+      "mean_regret": 1.0,
       "n_sizes": 8,
       "row_type": "overall_summary"
     }
   ],
   "schema": "device_dispatch_cv_v1",
   "source": "locally measured moljax two-field FFT Helmholtz solves",
-  "timing_protocol": "one warmup excluded; synchronized median and IQR",
+  "timing_protocol": "two warmups excluded; synchronized median and IQR",
   "timings": [
     {
       "backend": "cpu",
       "device": "TFRT_CPU_0",
       "dimension": 1,
       "grid_size": 256,
-      "iqr_seconds": 1.0826624929904938e-06,
-      "median_seconds": 2.799462527036667e-05,
-      "repetitions": 7,
+      "iqr_seconds": 2.1439045667648315e-06,
+      "median_seconds": 1.902785152196884e-05,
+      "repetitions": 21,
       "unknowns": 512,
+      "warmups": 2,
       "workload": "fft_helmholtz_1d"
     },
     {
@@ -181,10 +182,11 @@
       "device": "cuda:0",
       "dimension": 1,
       "grid_size": 256,
-      "iqr_seconds": 8.398201316595078e-06,
-      "median_seconds": 8.479692041873932e-05,
-      "repetitions": 7,
+      "iqr_seconds": 1.3057142496109009e-06,
+      "median_seconds": 8.241552859544754e-05,
+      "repetitions": 21,
       "unknowns": 512,
+      "warmups": 2,
       "workload": "fft_helmholtz_1d"
     },
     {
@@ -192,10 +194,11 @@
       "device": "TFRT_CPU_0",
       "dimension": 1,
       "grid_size": 512,
-      "iqr_seconds": 2.623535692691803e-06,
-      "median_seconds": 3.889203071594238e-05,
-      "repetitions": 7,
+      "iqr_seconds": 1.2349337339401245e-06,
+      "median_seconds": 2.171192318201065e-05,
+      "repetitions": 21,
       "unknowns": 1024,
+      "warmups": 2,
       "workload": "fft_helmholtz_1d"
     },
     {
@@ -203,10 +206,11 @@
       "device": "cuda:0",
       "dimension": 1,
       "grid_size": 512,
-      "iqr_seconds": 6.173457950353622e-05,
-      "median_seconds": 0.00012199487537145615,
-      "repetitions": 7,
+      "iqr_seconds": 3.841705620288849e-05,
+      "median_seconds": 0.00011476036161184311,
+      "repetitions": 21,
       "unknowns": 1024,
+      "warmups": 2,
       "workload": "fft_helmholtz_1d"
     },
     {
@@ -214,10 +218,11 @@
       "device": "TFRT_CPU_0",
       "dimension": 1,
       "grid_size": 1024,
-      "iqr_seconds": 7.60951079428196e-05,
-      "median_seconds": 5.2731484174728394e-05,
-      "repetitions": 7,
+      "iqr_seconds": 2.0833685994148254e-06,
+      "median_seconds": 6.289687007665634e-05,
+      "repetitions": 21,
       "unknowns": 2048,
+      "warmups": 2,
       "workload": "fft_helmholtz_1d"
     },
     {
@@ -225,10 +230,11 @@
       "device": "cuda:0",
       "dimension": 1,
       "grid_size": 1024,
-      "iqr_seconds": 4.233792424201965e-06,
-      "median_seconds": 0.00011763349175453186,
-      "repetitions": 7,
+      "iqr_seconds": 3.6065466701984406e-05,
+      "median_seconds": 0.00011825188994407654,
+      "repetitions": 21,
       "unknowns": 2048,
+      "warmups": 2,
       "workload": "fft_helmholtz_1d"
     },
     {
@@ -236,10 +242,11 @@
       "device": "TFRT_CPU_0",
       "dimension": 1,
       "grid_size": 2048,
-      "iqr_seconds": 9.374646469950676e-05,
-      "median_seconds": 6.304308772087097e-05,
-      "repetitions": 7,
+      "iqr_seconds": 5.6354328989982605e-06,
+      "median_seconds": 5.065649747848511e-05,
+      "repetitions": 21,
       "unknowns": 4096,
+      "warmups": 2,
       "workload": "fft_helmholtz_1d"
     },
     {
@@ -247,10 +254,11 @@
       "device": "cuda:0",
       "dimension": 1,
       "grid_size": 2048,
-      "iqr_seconds": 4.4277869164943695e-05,
-      "median_seconds": 0.00023278407752513885,
-      "repetitions": 7,
+      "iqr_seconds": 1.660361886024475e-05,
+      "median_seconds": 0.00018153712153434753,
+      "repetitions": 21,
       "unknowns": 4096,
+      "warmups": 2,
       "workload": "fft_helmholtz_1d"
     },
     {
@@ -258,10 +266,11 @@
       "device": "TFRT_CPU_0",
       "dimension": 2,
       "grid_size": 64,
-      "iqr_seconds": 2.0417850464582443e-05,
-      "median_seconds": 0.0001930762082338333,
-      "repetitions": 7,
+      "iqr_seconds": 8.448027074337006e-06,
+      "median_seconds": 0.00018593203276395798,
+      "repetitions": 21,
       "unknowns": 8192,
+      "warmups": 2,
       "workload": "fft_helmholtz_2d"
     },
     {
@@ -269,10 +278,11 @@
       "device": "cuda:0",
       "dimension": 2,
       "grid_size": 64,
-      "iqr_seconds": 3.326311707496643e-05,
-      "median_seconds": 0.00017353519797325134,
-      "repetitions": 7,
+      "iqr_seconds": 4.015956073999405e-05,
+      "median_seconds": 0.00014305580407381058,
+      "repetitions": 21,
       "unknowns": 8192,
+      "warmups": 2,
       "workload": "fft_helmholtz_2d"
     },
     {
@@ -280,10 +290,11 @@
       "device": "TFRT_CPU_0",
       "dimension": 2,
       "grid_size": 128,
-      "iqr_seconds": 0.00013736914843320847,
-      "median_seconds": 0.0006357990205287933,
-      "repetitions": 7,
+      "iqr_seconds": 0.00018887128680944443,
+      "median_seconds": 0.0007455917075276375,
+      "repetitions": 21,
       "unknowns": 32768,
+      "warmups": 2,
       "workload": "fft_helmholtz_2d"
     },
     {
@@ -291,10 +302,11 @@
       "device": "cuda:0",
       "dimension": 2,
       "grid_size": 128,
-      "iqr_seconds": 0.00014559924602508545,
-      "median_seconds": 0.00023110955953598022,
-      "repetitions": 7,
+      "iqr_seconds": 3.204122185707092e-05,
+      "median_seconds": 0.0001745074987411499,
+      "repetitions": 21,
       "unknowns": 32768,
+      "warmups": 2,
       "workload": "fft_helmholtz_2d"
     },
     {
@@ -302,10 +314,11 @@
       "device": "TFRT_CPU_0",
       "dimension": 2,
       "grid_size": 256,
-      "iqr_seconds": 0.002316221594810486,
-      "median_seconds": 0.0029773926362395287,
-      "repetitions": 7,
+      "iqr_seconds": 0.004137737676501274,
+      "median_seconds": 0.00647679902613163,
+      "repetitions": 21,
       "unknowns": 131072,
+      "warmups": 2,
       "workload": "fft_helmholtz_2d"
     },
     {
@@ -313,10 +326,11 @@
       "device": "cuda:0",
       "dimension": 2,
       "grid_size": 256,
-      "iqr_seconds": 5.220761522650719e-05,
-      "median_seconds": 0.00025789160281419754,
-      "repetitions": 7,
+      "iqr_seconds": 1.2286007404327393e-05,
+      "median_seconds": 0.0002610469236969948,
+      "repetitions": 21,
       "unknowns": 131072,
+      "warmups": 2,
       "workload": "fft_helmholtz_2d"
     },
     {
@@ -324,10 +338,11 @@
       "device": "TFRT_CPU_0",
       "dimension": 2,
       "grid_size": 512,
-      "iqr_seconds": 0.009667787235230207,
-      "median_seconds": 0.02416940312832594,
-      "repetitions": 7,
+      "iqr_seconds": 0.004394662566483021,
+      "median_seconds": 0.007618112489581108,
+      "repetitions": 21,
       "unknowns": 524288,
+      "warmups": 2,
       "workload": "fft_helmholtz_2d"
     },
     {
@@ -335,10 +350,11 @@
       "device": "cuda:0",
       "dimension": 2,
       "grid_size": 512,
-      "iqr_seconds": 4.860619083046913e-05,
-      "median_seconds": 0.0008840812370181084,
-      "repetitions": 7,
+      "iqr_seconds": 3.349129110574722e-05,
+      "median_seconds": 0.0007940372452139854,
+      "repetitions": 21,
       "unknowns": 524288,
+      "warmups": 2,
       "workload": "fft_helmholtz_2d"
     }
   ]
