@@ -1,0 +1,236 @@
+{
+  "config": {
+    "dimension": 2,
+    "near_speedup_band": [
+      0.7,
+      1.5
+    ],
+    "repetitions": 21,
+    "sizes": [
+      48,
+      64,
+      80,
+      96,
+      112,
+      128,
+      160,
+      192,
+      256
+    ],
+    "warmups": 2
+  },
+  "crossover": {
+    "bracket": {
+      "cpu_faster_or_tied_size": 96,
+      "gpu_faster_size": 112
+    },
+    "contested_sizes": [
+      64,
+      96,
+      112
+    ],
+    "smallest_sampled_gpu_faster_size": 112
+  },
+  "devices": {
+    "cpu": "TFRT_CPU_0",
+    "gpu": "cuda:0"
+  },
+  "generated_at_utc": "2026-08-22T22:41:00.785258+00:00",
+  "memory_probe": {
+    "conservative_working_estimate_mib": 16.0,
+    "measurement_note": "post-warmup resident-memory proxy; projection includes a conservative workspace factor",
+    "memory_after_mib": 660,
+    "memory_before_mib": 660,
+    "probe_grid_size": 256,
+    "probe_timing": {
+      "backend": "gpu",
+      "device": "cuda:0",
+      "dimension": 2,
+      "grid_size": 256,
+      "iqr_seconds": 1.7901882529258728e-05,
+      "median_seconds": 0.0002692053094506264,
+      "repetitions": 3,
+      "unknowns": 131072,
+      "warmups": 2,
+      "workload": "fft_helmholtz_2d"
+    },
+    "projected_target_mib": 916.0,
+    "resident_increment_mib": 0,
+    "safe_budget_mib": 20480,
+    "target_grid_size": 1024
+  },
+  "recommendation": {
+    "dense_sizes": [
+      48,
+      56,
+      64,
+      72,
+      80,
+      88,
+      96,
+      104,
+      112,
+      120,
+      128
+    ],
+    "rationale": "Dense sampling brackets the measured crossover and includes every crossover-adjacent coarse size.",
+    "repetitions": 41
+  },
+  "rows": [
+    {
+      "cpu": {
+        "iqr_fraction": 0.06895671301751904,
+        "iqr_seconds": 3.269873559474945e-06,
+        "median_seconds": 4.7419220209121704e-05
+      },
+      "crossover_adjacent": false,
+      "gpu": {
+        "iqr_fraction": 0.024392817042568744,
+        "iqr_seconds": 3.014691174030304e-06,
+        "median_seconds": 0.00012358929961919785
+      },
+      "gpu_speedup": 0.3836838654740285,
+      "size": 48,
+      "unknowns": 4608
+    },
+    {
+      "cpu": {
+        "iqr_fraction": 0.8253831456020096,
+        "iqr_seconds": 0.00011506024748086929,
+        "median_seconds": 0.00013940222561359406
+      },
+      "crossover_adjacent": true,
+      "gpu": {
+        "iqr_fraction": 0.019561324392507483,
+        "iqr_seconds": 2.787448465824127e-06,
+        "median_seconds": 0.0001424979418516159
+      },
+      "gpu_speedup": 0.9782753617505195,
+      "size": 64,
+      "unknowns": 8192
+    },
+    {
+      "cpu": {
+        "iqr_fraction": 0.04319652536361965,
+        "iqr_seconds": 4.5942142605781555e-06,
+        "median_seconds": 0.00010635610669851303
+      },
+      "crossover_adjacent": false,
+      "gpu": {
+        "iqr_fraction": 0.18211028996266052,
+        "iqr_seconds": 3.061443567276001e-05,
+        "median_seconds": 0.00016810931265354156
+      },
+      "gpu_speedup": 0.632660410180271,
+      "size": 80,
+      "unknowns": 12800
+    },
+    {
+      "cpu": {
+        "iqr_fraction": 0.1025926058737046,
+        "iqr_seconds": 1.5987083315849304e-05,
+        "median_seconds": 0.0001558307558298111
+      },
+      "crossover_adjacent": true,
+      "gpu": {
+        "iqr_fraction": 0.013428143272705903,
+        "iqr_seconds": 2.1280720829963684e-06,
+        "median_seconds": 0.0001584785059094429
+      },
+      "gpu_speedup": 0.9832926865101519,
+      "size": 96,
+      "unknowns": 18432
+    },
+    {
+      "cpu": {
+        "iqr_fraction": 0.02427270941720832,
+        "iqr_seconds": 4.949048161506653e-06,
+        "median_seconds": 0.0002038935199379921
+      },
+      "crossover_adjacent": true,
+      "gpu": {
+        "iqr_fraction": 0.3661388012618296,
+        "iqr_seconds": 5.4047442972660065e-05,
+        "median_seconds": 0.00014761462807655334
+      },
+      "gpu_speedup": 1.3812555205047319,
+      "size": 112,
+      "unknowns": 25088
+    },
+    {
+      "cpu": {
+        "iqr_fraction": 0.04778890245109359,
+        "iqr_seconds": 2.158619463443756e-05,
+        "median_seconds": 0.000451698899269104
+      },
+      "crossover_adjacent": false,
+      "gpu": {
+        "iqr_fraction": 0.25863476035687116,
+        "iqr_seconds": 5.224160850048065e-05,
+        "median_seconds": 0.00020198989659547806
+      },
+      "gpu_speedup": 2.2362450146390946,
+      "size": 128,
+      "unknowns": 32768
+    },
+    {
+      "cpu": {
+        "iqr_fraction": 0.2515194957287819,
+        "iqr_seconds": 0.0002338225021958351,
+        "median_seconds": 0.0009296396747231483
+      },
+      "crossover_adjacent": false,
+      "gpu": {
+        "iqr_fraction": 0.020723502979635367,
+        "iqr_seconds": 3.818422555923462e-06,
+        "median_seconds": 0.00018425565212965012
+      },
+      "gpu_speedup": 5.045379417012479,
+      "size": 160,
+      "unknowns": 51200
+    },
+    {
+      "cpu": {
+        "iqr_fraction": 0.5806803555900875,
+        "iqr_seconds": 0.0005958098918199539,
+        "median_seconds": 0.0010260548442602158
+      },
+      "crossover_adjacent": false,
+      "gpu": {
+        "iqr_fraction": 0.7706554435503712,
+        "iqr_seconds": 0.0002187974750995636,
+        "median_seconds": 0.0002839108929038048
+      },
+      "gpu_speedup": 3.6140030900746933,
+      "size": 192,
+      "unknowns": 73728
+    },
+    {
+      "cpu": {
+        "iqr_fraction": 0.7637206444499154,
+        "iqr_seconds": 0.0020396998152136803,
+        "median_seconds": 0.002670740708708763
+      },
+      "crossover_adjacent": false,
+      "gpu": {
+        "iqr_fraction": 0.19478320902784663,
+        "iqr_seconds": 4.939921200275421e-05,
+        "median_seconds": 0.0002536112442612648
+      },
+      "gpu_speedup": 10.53084502025243,
+      "size": 256,
+      "unknowns": 131072
+    }
+  ],
+  "schema": "device_dispatch_crossover_probe_v1",
+  "source": "locally measured moljax two-field FFT Helmholtz solves",
+  "timing_protocol": "two warmups excluded; synchronized median and IQR",
+  "timing_reliability": {
+    "cpu_iqr_fraction_above_0_30_sizes": [
+      64,
+      192,
+      256
+    ],
+    "recommended_dense_repetitions": 41
+  }
+}
