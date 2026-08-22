@@ -11,9 +11,10 @@ the backward-Euler/JFNK solve actually visits, rather than on an analytic steady
 
 The study reuses the shipped periodic FFT diffusion preconditioner, the Stage-1 conditioning
 toolbox, and the Stage-2 counted matrix-free GMRES measurement. The fixed-step 256 by 256 run has
-a 133128-component two-field linearization. Its recorded adjoint-identity errors for the
-FFT-preconditioned operator range from 2.38e-18 to 5.82e-18; the identity baseline ranges from
-2.78e-17 to 2.36e-16. Thus all four fixed-step states pass the 1e-08 adjoint gate.
+a 133128-component two-field linearization. Across its four fixed-dt 256 by 256 states, the
+FFT-preconditioned adjoint-identity errors are 2.38e-18, 2.40e-18, 3.50e-18, and 5.82e-18,
+while the identity-baseline errors are 5.55e-17, 2.78e-17, 2.36e-16, and 2.06e-16. Thus all
+four fixed-dt 256 by 256 states pass the 1e-08 adjoint gate.
 
 Source: `benchmarks/results/brusselator_conditioning_fixed_dt.json`,
 `fixed_dt_transition.by_regime`.
