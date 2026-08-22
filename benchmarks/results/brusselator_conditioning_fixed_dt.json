@@ -1,5 +1,5 @@
 {
-  "schema_version": "brusselator_conditioning_paperres_v1",
+  "schema_version": "brusselator_conditioning_fixed_dt_v1",
   "status": "completed",
   "config": {
     "nx": 256,
@@ -22,7 +22,7 @@
     "max_krylov_iters": 100,
     "newton_tol": 1e-08,
     "krylov_tol": 1e-08,
-    "output_path": "benchmarks/results/brusselator_conditioning_paperres.json"
+    "output_path": "benchmarks/results/brusselator_conditioning_fixed_dt.json"
   },
   "model": {
     "name": "brusselator",
@@ -499,7 +499,7 @@
     }
   },
   "scope": {
-    "paper_resolution": "256x256 physical periodic grid at L=5",
+    "grid_resolution": "256x256 physical periodic grid at L=5",
     "hopf_developed_time": 10.0,
     "turing_developed_time": 200.0,
     "turing_reaches_paper_t200": true,
