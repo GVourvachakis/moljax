@@ -1,0 +1,205 @@
+{
+  "hardware": {
+    "comparison_gpu": "RTX 5060",
+    "comparison_note": "absolute speedups are hardware-specific; only size-scaling trends are compared",
+    "cpu": "TFRT_CPU_0",
+    "gpu": "cuda:0"
+  },
+  "memory_probe": {
+    "conservative_working_estimate_mib": 16.0,
+    "measurement_note": "post-warmup resident-memory proxy; projection includes a conservative workspace factor",
+    "memory_after_mib": 636,
+    "memory_before_mib": 607,
+    "probe_grid_size": 256,
+    "probe_timing": {
+      "backend": "gpu",
+      "device": "cuda:0",
+      "dimension": 2,
+      "grid_size": 256,
+      "iqr_seconds": 9.236996993422508e-05,
+      "median_seconds": 0.0004508020356297493,
+      "repetitions": 3,
+      "unknowns": 131072,
+      "workload": "fft_helmholtz_2d"
+    },
+    "projected_target_mib": 1071.0,
+    "resident_increment_mib": 29,
+    "safe_budget_mib": 20480,
+    "target_grid_size": 1024
+  },
+  "records": [
+    {
+      "cpu": {
+        "backend": "cpu",
+        "device": "TFRT_CPU_0",
+        "dimension": 2,
+        "grid_size": 64,
+        "iqr_seconds": 4.7674402594566345e-05,
+        "median_seconds": 7.299426943063736e-05,
+        "repetitions": 7,
+        "unknowns": 8192,
+        "workload": "fft_helmholtz_2d"
+      },
+      "gpu": {
+        "backend": "gpu",
+        "device": "cuda:0",
+        "dimension": 2,
+        "grid_size": 64,
+        "iqr_seconds": 9.674113243818283e-06,
+        "median_seconds": 0.00018889736384153366,
+        "repetitions": 7,
+        "unknowns": 8192,
+        "workload": "fft_helmholtz_2d"
+      },
+      "gpu_speedup": 0.3864229121369443,
+      "grid_size": 64,
+      "unknowns": 8192
+    },
+    {
+      "cpu": {
+        "backend": "cpu",
+        "device": "TFRT_CPU_0",
+        "dimension": 2,
+        "grid_size": 128,
+        "iqr_seconds": 8.675223216414452e-05,
+        "median_seconds": 0.0002954164519906044,
+        "repetitions": 7,
+        "unknowns": 32768,
+        "workload": "fft_helmholtz_2d"
+      },
+      "gpu": {
+        "backend": "gpu",
+        "device": "cuda:0",
+        "dimension": 2,
+        "grid_size": 128,
+        "iqr_seconds": 0.00013795774430036545,
+        "median_seconds": 0.0002812528982758522,
+        "repetitions": 7,
+        "unknowns": 32768,
+        "workload": "fft_helmholtz_2d"
+      },
+      "gpu_speedup": 1.050358783150603,
+      "grid_size": 128,
+      "unknowns": 32768
+    },
+    {
+      "cpu": {
+        "backend": "cpu",
+        "device": "TFRT_CPU_0",
+        "dimension": 2,
+        "grid_size": 256,
+        "iqr_seconds": 0.0008560582064092159,
+        "median_seconds": 0.002666228450834751,
+        "repetitions": 7,
+        "unknowns": 131072,
+        "workload": "fft_helmholtz_2d"
+      },
+      "gpu": {
+        "backend": "gpu",
+        "device": "cuda:0",
+        "dimension": 2,
+        "grid_size": 256,
+        "iqr_seconds": 6.509479135274887e-06,
+        "median_seconds": 0.0002555307000875473,
+        "repetitions": 7,
+        "unknowns": 131072,
+        "workload": "fft_helmholtz_2d"
+      },
+      "gpu_speedup": 10.434082675472165,
+      "grid_size": 256,
+      "unknowns": 131072
+    },
+    {
+      "cpu": {
+        "backend": "cpu",
+        "device": "TFRT_CPU_0",
+        "dimension": 2,
+        "grid_size": 512,
+        "iqr_seconds": 0.00271324859932065,
+        "median_seconds": 0.0067592803388834,
+        "repetitions": 7,
+        "unknowns": 524288,
+        "workload": "fft_helmholtz_2d"
+      },
+      "gpu": {
+        "backend": "gpu",
+        "device": "cuda:0",
+        "dimension": 2,
+        "grid_size": 512,
+        "iqr_seconds": 7.475027814507484e-05,
+        "median_seconds": 0.0009347125887870789,
+        "repetitions": 7,
+        "unknowns": 524288,
+        "workload": "fft_helmholtz_2d"
+      },
+      "gpu_speedup": 7.231399705073533,
+      "grid_size": 512,
+      "unknowns": 524288
+    },
+    {
+      "cpu": {
+        "backend": "cpu",
+        "device": "TFRT_CPU_0",
+        "dimension": 2,
+        "grid_size": 1024,
+        "iqr_seconds": 0.001560315489768982,
+        "median_seconds": 0.039811805821955204,
+        "repetitions": 7,
+        "unknowns": 2097152,
+        "workload": "fft_helmholtz_2d"
+      },
+      "gpu": {
+        "backend": "gpu",
+        "device": "cuda:0",
+        "dimension": 2,
+        "grid_size": 1024,
+        "iqr_seconds": 0.0002911440096795559,
+        "median_seconds": 0.003236140124499798,
+        "repetitions": 7,
+        "unknowns": 2097152,
+        "workload": "fft_helmholtz_2d"
+      },
+      "gpu_speedup": 12.302250301386074,
+      "grid_size": 1024,
+      "unknowns": 2097152
+    }
+  ],
+  "requested_grid_sizes": [
+    64,
+    128,
+    256,
+    512,
+    1024
+  ],
+  "safe_grid_sizes": [
+    64,
+    128,
+    256,
+    512,
+    1024
+  ],
+  "schema": "scaling_reproduction_v1",
+  "source": "locally measured moljax two-field FFT Helmholtz solves",
+  "timing_protocol": "one warmup excluded; synchronized median and IQR",
+  "trend": {
+    "cpu_n2_log_n_normalized_spread": 1.9742890745930815,
+    "cpu_seconds_over_n2_log_n": [
+      2.142506317563749e-09,
+      1.8580664510840608e-09,
+      3.6683602942432014e-09,
+      2.066629245521832e-09,
+      2.7387759603581015e-09
+    ],
+    "gpu_crossover_grid_size": 128,
+    "gpu_n2_log_n_normalized_spread": 24.905042881863857,
+    "gpu_seconds_over_n2_log_n": [
+      5.544459839908423e-09,
+      1.7689826380188863e-09,
+      3.515747774230857e-10,
+      2.8578550900344925e-10,
+      2.226239828699899e-10
+    ],
+    "largest_safe_grid_size": 1024,
+    "speedup_grows_from_first_to_last": true
+  }
+}

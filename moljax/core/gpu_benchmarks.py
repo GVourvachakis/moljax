@@ -71,6 +71,62 @@ class DeviceInfo:
         return "\n".join(lines)
 
 
+@dataclass(frozen=True)
+class DevicePrimitiveTiming:
+    """Median and IQR timings for device-local FFT and dispatch primitives."""
+
+    device: str
+    fft_size: int
+    repetitions: int
+    fft_seconds: float
+    fft_iqr_seconds: float
+    launch_seconds: float
+    launch_iqr_seconds: float
+
+
+def measure_device_primitives(
+    device: Any,
+    fft_size: int = 16_384,
+    repetitions: int = 11,
+) -> DevicePrimitiveTiming:
+    """Measure one float64 FFT and one trivial dispatch on ``device``.
+
+    The measurements are intentionally local to a device.  They can be passed
+    to a portable calibration but must not be reused for a different device.
+    """
+    if fft_size < 2 or repetitions < 3:
+        raise ValueError("fft_size >= 2 and repetitions >= 3 are required")
+    with jax.default_device(device):
+        signal = jnp.linspace(0.0, 1.0, fft_size, dtype=jnp.float64)
+        scalar = jnp.asarray(1.0, dtype=jnp.float64)
+        fft = jax.jit(jnp.fft.rfft)
+        launch = jax.jit(lambda value: value + 1.0)
+        jax.block_until_ready(fft(signal))
+        jax.block_until_ready(launch(scalar))
+
+        def sample(operation, argument):
+            values = []
+            for _ in range(repetitions):
+                started = time.perf_counter()
+                jax.block_until_ready(operation(argument))
+                values.append(time.perf_counter() - started)
+            values_array = jnp.asarray(values, dtype=jnp.float64)
+            q25, q75 = jnp.percentile(values_array, jnp.asarray([25.0, 75.0]))
+            return float(jnp.median(values_array)), float(q75 - q25)
+
+        fft_seconds, fft_iqr_seconds = sample(fft, signal)
+        launch_seconds, launch_iqr_seconds = sample(launch, scalar)
+    return DevicePrimitiveTiming(
+        str(device),
+        fft_size,
+        repetitions,
+        fft_seconds,
+        fft_iqr_seconds,
+        launch_seconds,
+        launch_iqr_seconds,
+    )
+
+
 @dataclass
 class BenchmarkResult:
     """Result from a single benchmark run."""

@@ -1,0 +1,345 @@
+{
+  "device_primitives": {
+    "cpu": {
+      "device": "TFRT_CPU_0",
+      "fft_iqr_seconds": 5.235522985458374e-05,
+      "fft_seconds": 0.00040869973599910736,
+      "fft_size": 16384,
+      "launch_iqr_seconds": 8.749775588512421e-07,
+      "launch_seconds": 6.171874701976776e-06,
+      "repetitions": 11
+    },
+    "gpu": {
+      "device": "cuda:0",
+      "fft_iqr_seconds": 2.5168992578983307e-06,
+      "fft_seconds": 0.0001858789473772049,
+      "fft_size": 16384,
+      "launch_iqr_seconds": 5.5874697864055634e-05,
+      "launch_seconds": 2.9867514967918396e-05,
+      "repetitions": 11
+    }
+  },
+  "devices": {
+    "cpu": "TFRT_CPU_0",
+    "gpu": "cuda:0"
+  },
+  "overall": {
+    "max_regret": 1.1126054569263466,
+    "mean_regret": 1.0140756821157932
+  },
+  "rows": [
+    {
+      "M": 512,
+      "actual_fastest_backend": "cpu",
+      "actual_seconds": 2.799462527036667e-05,
+      "heldout_regret": 1.0,
+      "predicted_backend": "cpu",
+      "predicted_seconds": 4.1760797698814243e-05,
+      "row_type": "holdout",
+      "workload": "fft_helmholtz_1d"
+    },
+    {
+      "M": 1024,
+      "actual_fastest_backend": "cpu",
+      "actual_seconds": 3.889203071594238e-05,
+      "heldout_regret": 1.0,
+      "predicted_backend": "cpu",
+      "predicted_seconds": 3.683121413290811e-05,
+      "row_type": "holdout",
+      "workload": "fft_helmholtz_1d"
+    },
+    {
+      "M": 2048,
+      "actual_fastest_backend": "cpu",
+      "actual_seconds": 5.2731484174728394e-05,
+      "heldout_regret": 1.0,
+      "predicted_backend": "cpu",
+      "predicted_seconds": 4.043199388486043e-05,
+      "row_type": "holdout",
+      "workload": "fft_helmholtz_1d"
+    },
+    {
+      "M": 4096,
+      "actual_fastest_backend": "cpu",
+      "actual_seconds": 6.304308772087097e-05,
+      "heldout_regret": 1.0,
+      "predicted_backend": "cpu",
+      "predicted_seconds": 0.00011887994428314659,
+      "row_type": "holdout",
+      "workload": "fft_helmholtz_1d"
+    },
+    {
+      "M": 8192,
+      "actual_fastest_backend": "gpu",
+      "actual_seconds": 0.0001930762082338333,
+      "heldout_regret": 1.1126054569263466,
+      "predicted_backend": "cpu",
+      "predicted_seconds": 5.641122149545137e-05,
+      "row_type": "holdout",
+      "workload": "fft_helmholtz_2d"
+    },
+    {
+      "M": 32768,
+      "actual_fastest_backend": "gpu",
+      "actual_seconds": 0.00023110955953598022,
+      "heldout_regret": 1.0,
+      "predicted_backend": "gpu",
+      "predicted_seconds": 0.00017267550251136575,
+      "row_type": "holdout",
+      "workload": "fft_helmholtz_2d"
+    },
+    {
+      "M": 131072,
+      "actual_fastest_backend": "gpu",
+      "actual_seconds": 0.00025789160281419754,
+      "heldout_regret": 1.0,
+      "predicted_backend": "gpu",
+      "predicted_seconds": 0.00030834413375795664,
+      "row_type": "holdout",
+      "workload": "fft_helmholtz_2d"
+    },
+    {
+      "M": 524288,
+      "actual_fastest_backend": "gpu",
+      "actual_seconds": 0.0008840812370181084,
+      "heldout_regret": 1.0,
+      "predicted_backend": "gpu",
+      "predicted_seconds": 0.0005893752861641855,
+      "row_type": "holdout",
+      "workload": "fft_helmholtz_2d"
+    },
+    {
+      "backend": "cpu",
+      "l2_error_seconds": 5.884544570708389e-05,
+      "n_sizes": 4,
+      "q2": -3.876831697083948,
+      "row_type": "model_summary",
+      "workload": "fft_helmholtz_1d"
+    },
+    {
+      "backend": "gpu",
+      "l2_error_seconds": 6.161115381053095e-05,
+      "n_sizes": 4,
+      "q2": 0.6958084568719931,
+      "row_type": "model_summary",
+      "workload": "fft_helmholtz_1d"
+    },
+    {
+      "backend": "cpu",
+      "l2_error_seconds": 0.007322444272669297,
+      "n_sizes": 4,
+      "q2": 0.8652155322540955,
+      "row_type": "model_summary",
+      "workload": "fft_helmholtz_2d"
+    },
+    {
+      "backend": "gpu",
+      "l2_error_seconds": 0.00030480135864420656,
+      "n_sizes": 4,
+      "q2": 0.7215339809978907,
+      "row_type": "model_summary",
+      "workload": "fft_helmholtz_2d"
+    },
+    {
+      "max_regret": 1.0,
+      "mean_regret": 1.0,
+      "n_sizes": 4,
+      "row_type": "case_summary",
+      "workload": "fft_helmholtz_1d"
+    },
+    {
+      "max_regret": 1.1126054569263466,
+      "mean_regret": 1.0281513642315867,
+      "n_sizes": 4,
+      "row_type": "case_summary",
+      "workload": "fft_helmholtz_2d"
+    },
+    {
+      "max_regret": 1.1126054569263466,
+      "mean_regret": 1.0140756821157932,
+      "n_sizes": 8,
+      "row_type": "overall_summary"
+    }
+  ],
+  "schema": "device_dispatch_cv_v1",
+  "source": "locally measured moljax two-field FFT Helmholtz solves",
+  "timing_protocol": "one warmup excluded; synchronized median and IQR",
+  "timings": [
+    {
+      "backend": "cpu",
+      "device": "TFRT_CPU_0",
+      "dimension": 1,
+      "grid_size": 256,
+      "iqr_seconds": 1.0826624929904938e-06,
+      "median_seconds": 2.799462527036667e-05,
+      "repetitions": 7,
+      "unknowns": 512,
+      "workload": "fft_helmholtz_1d"
+    },
+    {
+      "backend": "gpu",
+      "device": "cuda:0",
+      "dimension": 1,
+      "grid_size": 256,
+      "iqr_seconds": 8.398201316595078e-06,
+      "median_seconds": 8.479692041873932e-05,
+      "repetitions": 7,
+      "unknowns": 512,
+      "workload": "fft_helmholtz_1d"
+    },
+    {
+      "backend": "cpu",
+      "device": "TFRT_CPU_0",
+      "dimension": 1,
+      "grid_size": 512,
+      "iqr_seconds": 2.623535692691803e-06,
+      "median_seconds": 3.889203071594238e-05,
+      "repetitions": 7,
+      "unknowns": 1024,
+      "workload": "fft_helmholtz_1d"
+    },
+    {
+      "backend": "gpu",
+      "device": "cuda:0",
+      "dimension": 1,
+      "grid_size": 512,
+      "iqr_seconds": 6.173457950353622e-05,
+      "median_seconds": 0.00012199487537145615,
+      "repetitions": 7,
+      "unknowns": 1024,
+      "workload": "fft_helmholtz_1d"
+    },
+    {
+      "backend": "cpu",
+      "device": "TFRT_CPU_0",
+      "dimension": 1,
+      "grid_size": 1024,
+      "iqr_seconds": 7.60951079428196e-05,
+      "median_seconds": 5.2731484174728394e-05,
+      "repetitions": 7,
+      "unknowns": 2048,
+      "workload": "fft_helmholtz_1d"
+    },
+    {
+      "backend": "gpu",
+      "device": "cuda:0",
+      "dimension": 1,
+      "grid_size": 1024,
+      "iqr_seconds": 4.233792424201965e-06,
+      "median_seconds": 0.00011763349175453186,
+      "repetitions": 7,
+      "unknowns": 2048,
+      "workload": "fft_helmholtz_1d"
+    },
+    {
+      "backend": "cpu",
+      "device": "TFRT_CPU_0",
+      "dimension": 1,
+      "grid_size": 2048,
+      "iqr_seconds": 9.374646469950676e-05,
+      "median_seconds": 6.304308772087097e-05,
+      "repetitions": 7,
+      "unknowns": 4096,
+      "workload": "fft_helmholtz_1d"
+    },
+    {
+      "backend": "gpu",
+      "device": "cuda:0",
+      "dimension": 1,
+      "grid_size": 2048,
+      "iqr_seconds": 4.4277869164943695e-05,
+      "median_seconds": 0.00023278407752513885,
+      "repetitions": 7,
+      "unknowns": 4096,
+      "workload": "fft_helmholtz_1d"
+    },
+    {
+      "backend": "cpu",
+      "device": "TFRT_CPU_0",
+      "dimension": 2,
+      "grid_size": 64,
+      "iqr_seconds": 2.0417850464582443e-05,
+      "median_seconds": 0.0001930762082338333,
+      "repetitions": 7,
+      "unknowns": 8192,
+      "workload": "fft_helmholtz_2d"
+    },
+    {
+      "backend": "gpu",
+      "device": "cuda:0",
+      "dimension": 2,
+      "grid_size": 64,
+      "iqr_seconds": 3.326311707496643e-05,
+      "median_seconds": 0.00017353519797325134,
+      "repetitions": 7,
+      "unknowns": 8192,
+      "workload": "fft_helmholtz_2d"
+    },
+    {
+      "backend": "cpu",
+      "device": "TFRT_CPU_0",
+      "dimension": 2,
+      "grid_size": 128,
+      "iqr_seconds": 0.00013736914843320847,
+      "median_seconds": 0.0006357990205287933,
+      "repetitions": 7,
+      "unknowns": 32768,
+      "workload": "fft_helmholtz_2d"
+    },
+    {
+      "backend": "gpu",
+      "device": "cuda:0",
+      "dimension": 2,
+      "grid_size": 128,
+      "iqr_seconds": 0.00014559924602508545,
+      "median_seconds": 0.00023110955953598022,
+      "repetitions": 7,
+      "unknowns": 32768,
+      "workload": "fft_helmholtz_2d"
+    },
+    {
+      "backend": "cpu",
+      "device": "TFRT_CPU_0",
+      "dimension": 2,
+      "grid_size": 256,
+      "iqr_seconds": 0.002316221594810486,
+      "median_seconds": 0.0029773926362395287,
+      "repetitions": 7,
+      "unknowns": 131072,
+      "workload": "fft_helmholtz_2d"
+    },
+    {
+      "backend": "gpu",
+      "device": "cuda:0",
+      "dimension": 2,
+      "grid_size": 256,
+      "iqr_seconds": 5.220761522650719e-05,
+      "median_seconds": 0.00025789160281419754,
+      "repetitions": 7,
+      "unknowns": 131072,
+      "workload": "fft_helmholtz_2d"
+    },
+    {
+      "backend": "cpu",
+      "device": "TFRT_CPU_0",
+      "dimension": 2,
+      "grid_size": 512,
+      "iqr_seconds": 0.009667787235230207,
+      "median_seconds": 0.02416940312832594,
+      "repetitions": 7,
+      "unknowns": 524288,
+      "workload": "fft_helmholtz_2d"
+    },
+    {
+      "backend": "gpu",
+      "device": "cuda:0",
+      "dimension": 2,
+      "grid_size": 512,
+      "iqr_seconds": 4.860619083046913e-05,
+      "median_seconds": 0.0008840812370181084,
+      "repetitions": 7,
+      "unknowns": 524288,
+      "workload": "fft_helmholtz_2d"
+    }
+  ]
+}
