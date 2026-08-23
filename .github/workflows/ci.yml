@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags-ignore: ['**']
+  pull_request:
+  workflow_dispatch:
+
+# A new push to the same branch supersedes an in-flight run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: tests (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        # Oldest and newest supported interpreters; the middle version is
+        # covered transitively.
+        python-version: ["3.10", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install package and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,viz]"
+
+      - name: Report resolved environment
+        run: |
+          python -c "import jax, jaxlib, numpy, scipy; print(f'jax {jax.__version__}  jaxlib {jaxlib.__version__}  numpy {numpy.__version__}  scipy {scipy.__version__}')"
+          python -c "import jax; print('devices:', jax.devices())"
+
+      - name: Run test suite
+        env:
+          # GitHub runners have no GPU. Pin the backend so a missing CUDA
+          # plugin is never mistaken for a test failure.
+          JAX_PLATFORMS: cpu
+        run: pytest -q -p no:cacheprovider --durations=15
+
+  lint:
+    name: lint (advisory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Advisory for now. The repository carries a backlog of style findings
+    # that predates CI; failing the build on them would block every merge.
+    # Once the backlog is cleared this becomes a required check.
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install ruff
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "ruff>=0.14"
+
+      - name: Lint
+        run: ruff check . --output-format=github --statistics
