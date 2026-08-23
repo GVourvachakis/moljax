@@ -59,8 +59,9 @@ under FFT diffusion preconditioning it remains `adequate` (origin outside, disk 
 the counted GMRES work is 13 iterations. The smaller fixed timestep therefore reaches beyond the
 previous t=18.6 stop without changing the Hopf verdict over the recorded t=0.2 to t=20 extent.
 
-This still does not claim that Hopf remains adequate at a long-time attractor; it reports
-adequacy only through the completed smaller-timestep continuation.
+This continuation samples its early and developed endpoints only; it does not resolve the
+intermediate Hopf trajectory. It also does not claim that Hopf remains adequate at a long-time
+attractor; it reports adequacy only through the completed smaller-timestep continuation.
 
 Sources: `benchmarks/results/brusselator_conditioning_fixed_dt.json`,
 `fixed_dt_transition.by_regime.hopf` and `scope`; and
@@ -69,17 +70,35 @@ Sources: `benchmarks/results/brusselator_conditioning_fixed_dt.json`,
 
 ## Limitation and open problem
 
-On the developed Turing reaction--diffusion state, a regime of practical interest, the decision
-procedure abstains: it returns `indeterminate` when the shipped FFT-diffusion preconditioner leaves
-the reaction Jacobian un-preconditioned and the origin enters the numerical range. This is a
-limitation of the enclosing-disk criterion, not evidence that the linear solve failed: the geometric
-guarantee is void precisely where the reaction contribution is important, even if the measured
-GMRES solve still converges. The same origin-enclosure mechanism appears in the strong-reaction
-experiment in #2.
+The abstention is not a blanket property of developed reaction--diffusion states. It occurs when
+the numerical range encloses the origin: at dt=1, both the developed Hopf and developed Turing
+64 by 64 states are `indeterminate`, with disk rates 7.3377 and 8.3805 respectively, although
+their counted GMRES solves converge in 39 and 20 iterations. At 256 by 256 and dt=0.2, the
+developed Turing state is likewise `indeterminate` (origin enclosed, disk rate 1.5192) while the
+FFT-preconditioned GMRES solve takes nine iterations. These are the states on which the
+enclosing-disk criterion abstains: its convergence guarantee is void even though the observed
+linear solve succeeds.
 
-The open problem is whether the reaction term can be folded into the preconditioner, or whether an
-origin-enclosed numerical range needs a second decision criterion that does not rely on the
-enclosing disk.
+By contrast, the developed 256 by 256 Hopf state at dt=0.05 is `adequate`: its numerical range
+leaves the origin outside, its disk rate is 0.5113, and the measured FFT-preconditioned GMRES
+work is 13 iterations at t=20 with max|u-a| = 3.3553. Thus origin enclosure depends on the
+timestep and on how the un-preconditioned reaction term interacts with the backward-Euler
+operator; developedness alone does not determine the verdict. The original dt=0.2 Hopf
+continuation halted near the limit cycle when dt*rho reached about 3.6 at peaks, a Newton-basin
+loss rather than backward-Euler linear instability. The smaller dt=0.05 path makes the developed
+Hopf assessment possible.
+
+Sources: `benchmarks/results/brusselator_conditioning_developed.json`, `records`;
+`benchmarks/results/brusselator_conditioning_fixed_dt.json`, `records`,
+`fixed_dt_transition.by_regime.turing`, and `scope`; and
+`benchmarks/results/brusselator_conditioning_hopf_continuation.json`, `records`,
+`fixed_dt_transition.by_regime.hopf`, and `scope`.
+
+The open problem is whether the reaction term can be folded into the preconditioner, or whether
+origin-enclosed numerical ranges need a second decision criterion that does not rely on the
+enclosing disk. The timestep dependence sharpens that question: it points specifically to the
+reaction term's interaction with the backward-Euler operator, rather than treating all developed
+states as an undifferentiated failure regime.
 
 ## 64 by 64 exploration
 
