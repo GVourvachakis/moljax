@@ -6,6 +6,8 @@ import math
 from collections.abc import Callable
 
 import jax
+
+jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -37,14 +39,13 @@ def _dense_boundary(matrix: np.ndarray, n_angles: int) -> np.ndarray:
 
 def _result(matrix: np.ndarray, n_angles: int = 12) -> FieldOfValuesResult:
     """Run the public diagnostic with float64 enabled for the test operator."""
-    with jax.enable_x64(True):
-        matvec, matvec_adjoint = _matrix_actions(matrix)
-        return numerical_range(
-            matvec,
-            matvec_adjoint,
-            matrix.shape[0],
-            n_angles=n_angles,
-        )
+    matvec, matvec_adjoint = _matrix_actions(matrix)
+    return numerical_range(
+        matvec,
+        matvec_adjoint,
+        matrix.shape[0],
+        n_angles=n_angles,
+    )
 
 
 def _grcar(n: int) -> np.ndarray:
@@ -103,10 +104,9 @@ def test_adjoint_identity():
     vector = generator.standard_normal(6) + 1j * generator.standard_normal(6)
     cotangent = generator.standard_normal(6) + 1j * generator.standard_normal(6)
 
-    with jax.enable_x64(True):
-        matvec, matvec_adjoint = _matrix_actions(matrix)
-        forward = np.asarray(matvec(jnp.asarray(vector)))
-        adjoint = np.asarray(matvec_adjoint(jnp.asarray(cotangent)))
+    matvec, matvec_adjoint = _matrix_actions(matrix)
+    forward = np.asarray(matvec(jnp.asarray(vector)))
+    adjoint = np.asarray(matvec_adjoint(jnp.asarray(cotangent)))
 
     assert abs(np.vdot(forward, cotangent) - np.vdot(vector, adjoint)) <= 1.0e-12
 

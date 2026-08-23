@@ -18,6 +18,8 @@ from collections.abc import Callable
 from typing import NamedTuple
 
 import jax
+
+jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 import numpy as np
 from jax.experimental.sparse.linalg import lobpcg_standard
@@ -167,20 +169,19 @@ def numerical_range(
     if jnp.dtype(dtype) != jnp.dtype(jnp.complex128):
         raise ValueError("numerical-range diagnostics require dtype=jnp.complex128")
 
-    with jax.enable_x64(True):
-        boundary: list[jax.Array] = []
-        for index in range(n_angles):
-            theta = 2.0 * math.pi * index / n_angles
-            hermitian = _rotated_hermitian_action(matvec, matvec_adjoint, theta)
-            vector = _largest_hermitian_eigenvector(
-                hermitian,
-                n,
-                theta,
-                max_iters,
-                tolerance,
-            )
-            boundary.append(jnp.vdot(vector, _complex_action(matvec, vector)))
-        boundary_array = jnp.asarray(boundary, dtype=jnp.complex128)
+    boundary: list[jax.Array] = []
+    for index in range(n_angles):
+        theta = 2.0 * math.pi * index / n_angles
+        hermitian = _rotated_hermitian_action(matvec, matvec_adjoint, theta)
+        vector = _largest_hermitian_eigenvector(
+            hermitian,
+            n,
+            theta,
+            max_iters,
+            tolerance,
+        )
+        boundary.append(jnp.vdot(vector, _complex_action(matvec, vector)))
+    boundary_array = jnp.asarray(boundary, dtype=jnp.complex128)
 
     boundary_host = np.asarray(boundary_array, dtype=np.complex128)
     center, radius = _smallest_enclosing_disk(boundary_host)

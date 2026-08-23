@@ -12,6 +12,8 @@ from collections.abc import Callable
 from typing import NamedTuple
 
 import jax
+
+jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 
 Matvec = Callable[[jax.Array], jax.Array]
@@ -78,38 +80,37 @@ def arnoldi(
     if k < 1:
         raise ValueError("k must be positive")
 
-    with jax.enable_x64(True):
-        initial = jnp.asarray(v0, dtype=jnp.complex128)
-        if initial.ndim != 1:
-            raise ValueError("v0 must be one-dimensional")
-        n = initial.size
-        if k > n:
-            raise ValueError("k must not exceed the operator dimension")
-        initial_norm = float(jnp.linalg.norm(initial))
-        if initial_norm == 0.0:
-            raise ValueError("v0 must be nonzero")
+    initial = jnp.asarray(v0, dtype=jnp.complex128)
+    if initial.ndim != 1:
+        raise ValueError("v0 must be one-dimensional")
+    n = initial.size
+    if k > n:
+        raise ValueError("k must not exceed the operator dimension")
+    initial_norm = float(jnp.linalg.norm(initial))
+    if initial_norm == 0.0:
+        raise ValueError("v0 must be nonzero")
 
-        basis = jnp.zeros((n, k + 1), dtype=jnp.complex128)
-        hessenberg = jnp.zeros((k + 1, k), dtype=jnp.complex128)
-        basis = basis.at[:, 0].set(initial / initial_norm)
-        tolerance = 64.0 * jnp.finfo(jnp.float64).eps
-        k_eff = k
+    basis = jnp.zeros((n, k + 1), dtype=jnp.complex128)
+    hessenberg = jnp.zeros((k + 1, k), dtype=jnp.complex128)
+    basis = basis.at[:, 0].set(initial / initial_norm)
+    tolerance = 64.0 * jnp.finfo(jnp.float64).eps
+    k_eff = k
 
-        for column in range(k):
-            candidate = _complex_action(matvec, basis[:, column])
-            coefficients = basis[:, : column + 1].conj().T @ candidate
-            candidate = candidate - basis[:, : column + 1] @ coefficients
-            if reorthogonalize:
-                correction = basis[:, : column + 1].conj().T @ candidate
-                coefficients = coefficients + correction
-                candidate = candidate - basis[:, : column + 1] @ correction
-            hessenberg = hessenberg.at[: column + 1, column].set(coefficients)
-            norm = jnp.linalg.norm(candidate)
-            hessenberg = hessenberg.at[column + 1, column].set(norm)
-            if float(norm) <= tolerance:
-                k_eff = column + 1
-                break
-            basis = basis.at[:, column + 1].set(candidate / norm)
+    for column in range(k):
+        candidate = _complex_action(matvec, basis[:, column])
+        coefficients = basis[:, : column + 1].conj().T @ candidate
+        candidate = candidate - basis[:, : column + 1] @ coefficients
+        if reorthogonalize:
+            correction = basis[:, : column + 1].conj().T @ candidate
+            coefficients = coefficients + correction
+            candidate = candidate - basis[:, : column + 1] @ correction
+        hessenberg = hessenberg.at[: column + 1, column].set(coefficients)
+        norm = jnp.linalg.norm(candidate)
+        hessenberg = hessenberg.at[column + 1, column].set(norm)
+        if float(norm) <= tolerance:
+            k_eff = column + 1
+            break
+        basis = basis.at[:, column + 1].set(candidate / norm)
 
     return basis[:, : k_eff + 1], hessenberg[: k_eff + 1, :k_eff]
 
@@ -138,28 +139,25 @@ def reduced_pseudospectrum(
     the Ritz projection whose eigenvalues and shifted singular values define
     the reduced pseudospectrum.
     """
-    with jax.enable_x64(True):
-        projection = _square_hessenberg(hessenberg)
-        real = jnp.asarray(real_grid, dtype=jnp.float64)
-        imag = jnp.asarray(imag_grid, dtype=jnp.float64)
-        if real.ndim != 1 or imag.ndim != 1:
-            raise ValueError("real_grid and imag_grid must be one-dimensional")
-        if real.size == 0 or imag.size == 0:
-            raise ValueError("real_grid and imag_grid must be nonempty")
-        return _sigma_min_grid(projection, real, imag)
+    projection = _square_hessenberg(hessenberg)
+    real = jnp.asarray(real_grid, dtype=jnp.float64)
+    imag = jnp.asarray(imag_grid, dtype=jnp.float64)
+    if real.ndim != 1 or imag.ndim != 1:
+        raise ValueError("real_grid and imag_grid must be one-dimensional")
+    if real.size == 0 or imag.size == 0:
+        raise ValueError("real_grid and imag_grid must be nonempty")
+    return _sigma_min_grid(projection, real, imag)
 
 
 def epsilon_zero(hessenberg: jax.Array) -> float:
     """Return the continuous epsilon at which zero enters the pseudospectrum."""
-    with jax.enable_x64(True):
-        projection = _square_hessenberg(hessenberg)
-        return float(jnp.linalg.svd(projection, compute_uv=False)[-1])
+    projection = _square_hessenberg(hessenberg)
+    return float(jnp.linalg.svd(projection, compute_uv=False)[-1])
 
 
 def ritz_values(hessenberg: jax.Array) -> jax.Array:
     """Return eigenvalues of the square leading Arnoldi projection."""
-    with jax.enable_x64(True):
-        return jnp.linalg.eigvals(_square_hessenberg(hessenberg))
+    return jnp.linalg.eigvals(_square_hessenberg(hessenberg))
 
 
 def pseudospectrum_dense(
@@ -178,20 +176,19 @@ def pseudospectrum_dense(
     if n < 1:
         raise ValueError("n must be positive")
 
-    with jax.enable_x64(True):
-        real = jnp.asarray(real_grid, dtype=jnp.float64)
-        imag = jnp.asarray(imag_grid, dtype=jnp.float64)
-        if real.ndim != 1 or imag.ndim != 1:
-            raise ValueError("real_grid and imag_grid must be one-dimensional")
-        if real.size == 0 or imag.size == 0:
-            raise ValueError("real_grid and imag_grid must be nonempty")
-        identity = jnp.eye(n, dtype=jnp.complex128)
-        columns = jax.vmap(lambda column: _complex_action(matvec, column))(identity.T)
-        matrix = columns.T
-        return PseudospectraResult(
-            real_grid=real,
-            imag_grid=imag,
-            sigma_min=_sigma_min_grid(matrix, real, imag),
-            ritz_values=jnp.linalg.eigvals(matrix),
-            epsilon_zero=float(jnp.linalg.svd(matrix, compute_uv=False)[-1]),
-        )
+    real = jnp.asarray(real_grid, dtype=jnp.float64)
+    imag = jnp.asarray(imag_grid, dtype=jnp.float64)
+    if real.ndim != 1 or imag.ndim != 1:
+        raise ValueError("real_grid and imag_grid must be one-dimensional")
+    if real.size == 0 or imag.size == 0:
+        raise ValueError("real_grid and imag_grid must be nonempty")
+    identity = jnp.eye(n, dtype=jnp.complex128)
+    columns = jax.vmap(lambda column: _complex_action(matvec, column))(identity.T)
+    matrix = columns.T
+    return PseudospectraResult(
+        real_grid=real,
+        imag_grid=imag,
+        sigma_min=_sigma_min_grid(matrix, real, imag),
+        ritz_values=jnp.linalg.eigvals(matrix),
+        epsilon_zero=float(jnp.linalg.svd(matrix, compute_uv=False)[-1]),
+    )
