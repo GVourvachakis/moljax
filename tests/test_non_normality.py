@@ -6,6 +6,8 @@ import itertools
 import math
 
 import jax
+
+jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -185,8 +187,7 @@ def test_rate_estimates_match_independent_dense_references(matrix: np.ndarray):
     boundary = _dense_boundary(matrix)
     fov = _fov_from_boundary(boundary)
     ritz = np.linalg.eigvals(matrix)
-    with jax.enable_x64(True):
-        rates = estimate_rates(fov, jnp.asarray(ritz, dtype=jnp.complex128))
+    rates = estimate_rates(fov, jnp.asarray(ritz, dtype=jnp.complex128))
 
     expected_r1 = fov.radius / abs(fov.center)
     expected_r2 = _reference_traced_rate(boundary, fov.center)

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import jax
+
+jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -66,12 +68,11 @@ def _maximum_matching_error(actual: jax.Array | np.ndarray, expected: np.ndarray
 def test_arnoldi_basis_is_orthonormal_and_satisfies_relation():
     """Twice-MGS Arnoldi returns the expected basis and Hessenberg relation."""
     matrix = _grcar(6)
-    with jax.enable_x64(True):
-        action = _matvec(matrix)
-        basis, hessenberg = arnoldi(action, _starting_vector(6), 5)
-        leading_basis = basis[:, :5]
-        expected = jnp.asarray(matrix) @ leading_basis
-        reconstructed = basis @ hessenberg
+    action = _matvec(matrix)
+    basis, hessenberg = arnoldi(action, _starting_vector(6), 5)
+    leading_basis = basis[:, :5]
+    expected = jnp.asarray(matrix) @ leading_basis
+    reconstructed = basis @ hessenberg
 
     np.testing.assert_allclose(
         np.asarray(leading_basis.conj().T @ leading_basis),
@@ -90,12 +91,9 @@ def test_arnoldi_basis_is_orthonormal_and_satisfies_relation():
 @pytest.mark.parametrize("matrix", [_grcar(6), _normal_matrix()], ids=["grcar", "normal"])
 def test_full_order_ritz_values_match_dense_eigenvalues(matrix: np.ndarray):
     """A full-order Arnoldi projection is similar to the dense operator."""
-    with jax.enable_x64(True):
-        basis, hessenberg = arnoldi(
-            _matvec(matrix), _starting_vector(matrix.shape[0]), matrix.shape[0]
-        )
-        del basis
-        actual = ritz_values(hessenberg)
+    basis, hessenberg = arnoldi(_matvec(matrix), _starting_vector(matrix.shape[0]), matrix.shape[0])
+    del basis
+    actual = ritz_values(hessenberg)
 
     assert _maximum_matching_error(actual, np.linalg.eigvals(matrix)) <= 1.0e-9
 
@@ -106,11 +104,10 @@ def test_full_order_reduced_grid_matches_dense_grid():
     matrix = _grcar(6)
     real_grid = np.linspace(-1.0, 3.0, 7)
     imag_grid = np.linspace(-2.5, 2.5, 6)
-    with jax.enable_x64(True):
-        action = _matvec(matrix)
-        _, hessenberg = arnoldi(action, _starting_vector(6), 6)
-        reduced = reduced_pseudospectrum(hessenberg, real_grid, imag_grid)
-        dense = pseudospectrum_dense(action, 6, real_grid, imag_grid)
+    action = _matvec(matrix)
+    _, hessenberg = arnoldi(action, _starting_vector(6), 6)
+    reduced = reduced_pseudospectrum(hessenberg, real_grid, imag_grid)
+    dense = pseudospectrum_dense(action, 6, real_grid, imag_grid)
 
     np.testing.assert_allclose(
         np.asarray(reduced), np.asarray(dense.sigma_min), atol=1.0e-9, rtol=0.0
@@ -120,9 +117,8 @@ def test_full_order_reduced_grid_matches_dense_grid():
 def test_epsilon_zero_matches_dense_smallest_singular_value():
     """The zero-entry threshold is the smallest singular value of the operator."""
     matrix = _grcar(6)
-    with jax.enable_x64(True):
-        _, hessenberg = arnoldi(_matvec(matrix), _starting_vector(6), 6)
-        actual = epsilon_zero(hessenberg)
+    _, hessenberg = arnoldi(_matvec(matrix), _starting_vector(6), 6)
+    actual = epsilon_zero(hessenberg)
 
     expected = np.linalg.svd(matrix, compute_uv=False)[-1]
     assert actual == pytest.approx(expected, abs=1.0e-10)
@@ -137,10 +133,9 @@ def test_arnoldi_breakdown_trims_to_the_completed_invariant_block():
     matrix[3:, 3:] = second_block
     start = jnp.asarray([1.0, 2.0, 3.0, 0.0, 0.0, 0.0], dtype=jnp.complex128)
 
-    with jax.enable_x64(True):
-        basis, hessenberg = arnoldi(_matvec(matrix), start, 5)
-        actual_ritz = ritz_values(hessenberg)
-        actual_epsilon = epsilon_zero(hessenberg)
+    basis, hessenberg = arnoldi(_matvec(matrix), start, 5)
+    actual_ritz = ritz_values(hessenberg)
+    actual_epsilon = epsilon_zero(hessenberg)
 
     assert basis.shape == (6, 4)
     assert hessenberg.shape == (4, 3)
