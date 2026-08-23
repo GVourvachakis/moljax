@@ -15,6 +15,8 @@ from pathlib import Path
 from typing import Any, NamedTuple
 
 import jax
+
+jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 import numpy as np
 
@@ -330,69 +332,68 @@ def run_decision_demo(config: DemoConfig | None = None) -> dict[str, Any]:
     if config.pseudospectrum_points < 1:
         raise ValueError("pseudospectrum_points must be positive")
 
-    with jax.enable_x64(True):
-        grid = Grid2D.uniform(
-            config.nx,
-            config.ny,
-            0.0,
-            config.domain_length,
-            0.0,
-            config.domain_length,
-            n_ghost=1,
+    grid = Grid2D.uniform(
+        config.nx,
+        config.ny,
+        0.0,
+        config.domain_length,
+        0.0,
+        config.domain_length,
+        n_ghost=1,
+    )
+    model, fft_cache, _ = create_gray_scott_periodic_fft(
+        grid=grid,
+        Du=config.du,
+        Dv=config.dv,
+        F=config.feed,
+        k=config.kill,
+        dtype=jnp.float64,
+    )
+    preconditioner = create_gray_scott_fft_preconditioner(fft_cache)
+    diagnostic_preconditioners = (
+        ("fft_diffusion", preconditioner),
+        ("identity", IdentityPreconditioner()),
+    )
+    nk_params = NKParams(
+        max_newton_iters=config.max_newton_iters,
+        max_krylov_iters=config.max_krylov_iters,
+        newton_tol=config.newton_tol,
+        krylov_tol=config.krylov_tol,
+    )
+    state = _initial_condition(grid)
+    states: list[dict[str, Any]] = []
+    figure_data: list[FigureData] = []
+    time_value = 0.0
+    for state_index in range(config.n_states):
+        state, stats = be_step(
+            model,
+            state,
+            time_value,
+            config.dt,
+            preconditioner=preconditioner,
+            nk_params=nk_params,
         )
-        model, fft_cache, _ = create_gray_scott_periodic_fft(
-            grid=grid,
-            Du=config.du,
-            Dv=config.dv,
-            F=config.feed,
-            k=config.kill,
-            dtype=jnp.float64,
-        )
-        preconditioner = create_gray_scott_fft_preconditioner(fft_cache)
-        diagnostic_preconditioners = (
-            ("fft_diffusion", preconditioner),
-            ("identity", IdentityPreconditioner()),
-        )
-        nk_params = NKParams(
-            max_newton_iters=config.max_newton_iters,
-            max_krylov_iters=config.max_krylov_iters,
-            newton_tol=config.newton_tol,
-            krylov_tol=config.krylov_tol,
-        )
-        state = _initial_condition(grid)
-        states: list[dict[str, Any]] = []
-        figure_data: list[FigureData] = []
-        time_value = 0.0
-        for state_index in range(config.n_states):
-            state, stats = be_step(
-                model,
+        _ready_state(state)
+        time_value += config.dt
+        for preconditioner_name, diagnostic_preconditioner in diagnostic_preconditioners:
+            record, plot_data = _run_state_diagnostics(
                 state,
+                model,
+                diagnostic_preconditioner,
+                preconditioner_name,
+                config,
+                state_index,
                 time_value,
-                config.dt,
-                preconditioner=preconditioner,
-                nk_params=nk_params,
             )
-            _ready_state(state)
-            time_value += config.dt
-            for preconditioner_name, diagnostic_preconditioner in diagnostic_preconditioners:
-                record, plot_data = _run_state_diagnostics(
-                    state,
-                    model,
-                    diagnostic_preconditioner,
-                    preconditioner_name,
-                    config,
-                    state_index,
-                    time_value,
-                )
-                record["implicit_step"] = {
-                    "converged": bool(stats.converged),
-                    "newton_iters": int(stats.newton_iters),
-                    "linear_iters": int(stats.lin_iters),
-                    "final_residual_norm": float(stats.final_res_norm),
-                }
-                states.append(record)
-                if state_index == 0 and plot_data is not None:
-                    figure_data.append(plot_data)
+            record["implicit_step"] = {
+                "converged": bool(stats.converged),
+                "newton_iters": int(stats.newton_iters),
+                "linear_iters": int(stats.lin_iters),
+                "final_residual_norm": float(stats.final_res_norm),
+            }
+            states.append(record)
+            if state_index == 0 and plot_data is not None:
+                figure_data.append(plot_data)
 
     completed = all(row["status"] == "completed" for row in states)
     return {
