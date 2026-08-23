@@ -48,18 +48,38 @@ This is the same origin-enclosure mechanism observed in the Stage-2 strong-react
 
 The stored outcome is `fft_adequate_to_indeterminate_in_one_regime_at_fixed_dt`.
 
-## Hopf scope
+## Hopf continuation scope
 
-The fixed-step Hopf path is `adequate` through the recorded t=10 sample: the origin remains
-outside the field of values, its disk rates are 0.7701 and 0.7288, and both recorded
-FFT-preconditioned solves take eight GMRES iterations. The dt=0.2 continuation ceased converging
-at t=18.6, so it did not provide a later diagnosable state. Its t=10 developedness is much
-smaller than the Turing t=200 sample (max|u-a| = 0.1339 and max|v-b/a| = 0.1999). Consequently
-this study does not claim that Hopf remains adequate at a long-time attractor; it reports
-adequacy only over the recorded integration extent.
+The original fixed-dt=0.2 Hopf path was `adequate` through t=10, but its continuation ceased
+converging at t=18.6. Near the limit cycle, the reaction-Jacobian scale gives dt*rho about 3.6 at
+the peaks; this is a Newton-basin loss, not a backward-Euler linear-stability failure. A separate
+fixed-dt=0.05 Hopf continuation now reaches t=20 at 256 by 256, with the same timestep for its
+early and developed samples. The developed state has max|u-a| = 3.3553 and max|v-b/a| = 2.5014;
+under FFT diffusion preconditioning it remains `adequate` (origin outside, disk rate 0.5113) and
+the counted GMRES work is 13 iterations. The smaller fixed timestep therefore reaches beyond the
+previous t=18.6 stop without changing the Hopf verdict over the recorded t=0.2 to t=20 extent.
 
-Source: `benchmarks/results/brusselator_conditioning_fixed_dt.json`,
+This still does not claim that Hopf remains adequate at a long-time attractor; it reports
+adequacy only through the completed smaller-timestep continuation.
+
+Sources: `benchmarks/results/brusselator_conditioning_fixed_dt.json`,
+`fixed_dt_transition.by_regime.hopf` and `scope`; and
+`benchmarks/results/brusselator_conditioning_hopf_continuation.json`,
 `fixed_dt_transition.by_regime.hopf` and `scope`.
+
+## Limitation and open problem
+
+On the developed Turing reaction--diffusion state, a regime of practical interest, the decision
+procedure abstains: it returns `indeterminate` when the shipped FFT-diffusion preconditioner leaves
+the reaction Jacobian un-preconditioned and the origin enters the numerical range. This is a
+limitation of the enclosing-disk criterion, not evidence that the linear solve failed: the geometric
+guarantee is void precisely where the reaction contribution is important, even if the measured
+GMRES solve still converges. The same origin-enclosure mechanism appears in the strong-reaction
+experiment in #2.
+
+The open problem is whether the reaction term can be folded into the preconditioner, or whether an
+origin-enclosed numerical range needs a second decision criterion that does not rely on the
+enclosing disk.
 
 ## 64 by 64 exploration
 
@@ -79,8 +99,8 @@ Sources: `benchmarks/results/brusselator_conditioning.json`, `hopf_vs_turing`; a
 ## Scope and caveats
 
 - This is a conditioning study; it has no exact-solution max-norm error measurement.
-- The fixed-step Turing trajectory reaches t=200 at 256 by 256 resolution. The Hopf trajectory
-  is represented through its recorded t=10 sample, not as a full long-time-attractor result.
+- The fixed-step Turing trajectory reaches t=200 at 256 by 256 resolution. The separate
+  fixed-dt=0.05 Hopf continuation reaches t=20, not a full long-time-attractor result.
 - The FOV imaginary extent distinguishes oscillatory character in the early screen, but the
   decision verdict is governed by whether the origin is enclosed.
 - The study stages experimental evidence only. It does not promote a public API or claim that

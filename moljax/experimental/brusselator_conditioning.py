@@ -13,6 +13,9 @@ from collections.abc import Mapping
 from typing import Any, NamedTuple
 
 import jax
+
+jax.config.update("jax_enable_x64", True)
+
 import jax.numpy as jnp
 from jax.flatten_util import ravel_pytree
 
@@ -371,19 +374,18 @@ def build_brusselator_linearization(
         raise ValueError("Brusselator FFT diffusivities must contain exactly 'u' and 'v'")
     if dt <= 0.0:
         raise ValueError("dt must be positive")
-    with jax.enable_x64(True):
-        residual = create_implicit_residual(model, state, time_value + dt, dt, method="be")
-        preconditioner = _preconditioner(preconditioner_kind, fft_cache)
-        context = PrecondContext(grid=model.grid, dt=dt, params=model.params)
-        operator = linearized_operator(
-            residual,
-            state,
-            preconditioner=preconditioner,
-            context=context,
-        )
-        negative_residual = jax.tree_util.tree_map(lambda value: -value, residual(state))
-        rhs_state = preconditioner.apply(negative_residual, context)
-        rhs, _ = ravel_pytree(rhs_state)
+    residual = create_implicit_residual(model, state, time_value + dt, dt, method="be")
+    preconditioner = _preconditioner(preconditioner_kind, fft_cache)
+    context = PrecondContext(grid=model.grid, dt=dt, params=model.params)
+    operator = linearized_operator(
+        residual,
+        state,
+        preconditioner=preconditioner,
+        context=context,
+    )
+    negative_residual = jax.tree_util.tree_map(lambda value: -value, residual(state))
+    rhs_state = preconditioner.apply(negative_residual, context)
+    rhs, _ = ravel_pytree(rhs_state)
     return BrusselatorLinearization(operator, residual, preconditioner, context, rhs)
 
 
@@ -440,23 +442,22 @@ def assess_brusselator_state(
             "fov_imaginary_extent": None,
         }
 
-    with jax.enable_x64(True):
-        key_real, key_imag = jax.random.split(jax.random.PRNGKey(seed + 1))
-        start = jax.random.normal(key_real, (operator.n,), dtype=jnp.float64)
-        start = start + 1j * jax.random.normal(key_imag, (operator.n,), dtype=jnp.float64)
-        _, hessenberg = arnoldi(operator.matvec, start, min(arnoldi_steps, operator.n))
-        ritz = ritz_values(hessenberg)
-        epsilon_at_zero = epsilon_zero(hessenberg)
-        field_of_values = numerical_range(
-            operator.matvec,
-            operator.matvec_adjoint,
-            operator.n,
-            n_angles=n_angles,
-            max_iters=fov_max_iters,
-        )
-        rates = estimate_rates(field_of_values, ritz)
-        assessment = assess_preconditioner(field_of_values, ritz, epsilon_at_zero)
-        jax.block_until_ready(field_of_values.boundary)
+    key_real, key_imag = jax.random.split(jax.random.PRNGKey(seed + 1))
+    start = jax.random.normal(key_real, (operator.n,), dtype=jnp.float64)
+    start = start + 1j * jax.random.normal(key_imag, (operator.n,), dtype=jnp.float64)
+    _, hessenberg = arnoldi(operator.matvec, start, min(arnoldi_steps, operator.n))
+    ritz = ritz_values(hessenberg)
+    epsilon_at_zero = epsilon_zero(hessenberg)
+    field_of_values = numerical_range(
+        operator.matvec,
+        operator.matvec_adjoint,
+        operator.n,
+        n_angles=n_angles,
+        max_iters=fov_max_iters,
+    )
+    rates = estimate_rates(field_of_values, ritz)
+    assessment = assess_preconditioner(field_of_values, ritz, epsilon_at_zero)
+    jax.block_until_ready(field_of_values.boundary)
 
     return {
         **common,
