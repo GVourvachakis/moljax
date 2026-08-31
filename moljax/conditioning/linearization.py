@@ -12,8 +12,6 @@ from collections.abc import Callable
 from typing import Any, NamedTuple
 
 import jax
-
-jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 from jax.flatten_util import ravel_pytree
 
@@ -64,6 +62,11 @@ def linearized_operator(
         ValueError: If the residual changes the flattened dimension or a
             preconditioner is supplied without its context.
     """
+    if not jax.config.jax_enable_x64:
+        raise RuntimeError(
+            "conditioning diagnostics require 64-bit precision; enable it with "
+            'jax.config.update("jax_enable_x64", True) before calling.'
+        )
     if preconditioner is not None and context is None:
         raise ValueError("context is required when preconditioner is supplied")
 

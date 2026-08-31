@@ -19,7 +19,15 @@ def _circle_from_three(
     bx, by = second.real, second.imag
     cx, cy = third.real, third.imag
     determinant = 2.0 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by))
-    if abs(determinant) <= np.finfo(np.float64).eps:
+    # The determinant is twice the signed triangle area, so it scales with the
+    # square of the coordinate span.  An absolute epsilon therefore declares
+    # every well-formed triangle collinear once the points are small enough
+    # (below roughly 1e-8), which silently returns a two-point circle that need
+    # not contain the third point.  Compare against the span instead.
+    span = max(abs(first - second), abs(second - third), abs(third - first))
+    if span <= 0.0:
+        return None
+    if abs(determinant) <= 8.0 * np.finfo(np.float64).eps * span * span:
         return None
     ux = (
         (ax * ax + ay * ay) * (by - cy)
@@ -46,7 +54,9 @@ def _smallest_enclosing_disk(points: np.ndarray) -> tuple[complex, float]:
     values = [complex(value) for value in np.asarray(points, dtype=np.complex128)]
     if not values:
         raise ValueError("an enclosing disk requires at least one boundary point")
-    scale = max(1.0, *(abs(value) for value in values))
+    # Tolerances must track the data.  Flooring the scale at 1.0 makes the
+    # containment test meaninglessly loose for small-magnitude spectra.
+    scale = max((abs(value) for value in values), default=0.0)
     tolerance = 64.0 * np.finfo(np.float64).eps * scale
     order = np.random.default_rng(0).permutation(len(values))
     ordered = [values[int(index)] for index in order]
@@ -65,6 +75,14 @@ def _smallest_enclosing_disk(points: np.ndarray) -> tuple[complex, float]:
                 candidate = _circle_from_three(first, second, third)
                 if candidate is not None:
                     circle = candidate
+    # Safety net: a disk that fails to enclose its own boundary would silently
+    # understate the disk rate, which is the primary input to the adequacy
+    # verdict.  Inflating the radius keeps the result correct and errs toward
+    # the conservative verdict rather than a false certificate.
+    center, radius = circle
+    worst = max((abs(value - center) for value in values), default=0.0)
+    if worst > radius:
+        circle = (center, worst)
     return circle
 
 

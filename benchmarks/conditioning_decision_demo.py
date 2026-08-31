@@ -57,7 +57,7 @@ class DemoConfig(NamedTuple):
     dt: float = 0.5
     n_states: int = 3
     n_angles: int = 8
-    fov_max_iters: int = 30
+    fov_max_iters: int = 120
     arnoldi_steps: int = 8
     pseudospectrum_points: int = 5
     overhead_runs: int = 50
@@ -363,8 +363,9 @@ def run_decision_demo(config: DemoConfig | None = None) -> dict[str, Any]:
     states: list[dict[str, Any]] = []
     figure_data: list[FigureData] = []
     time_value = 0.0
+    failures: list[dict[str, Any]] = []
     for state_index in range(config.n_states):
-        state, stats = be_step(
+        stepped, stats = be_step(
             model,
             state,
             time_value,
@@ -372,6 +373,26 @@ def run_decision_demo(config: DemoConfig | None = None) -> dict[str, Any]:
             preconditioner=preconditioner,
             nk_params=nk_params,
         )
+        # Diagnosing a state the implicit solve failed to produce would report
+        # conditioning for a point the trajectory never reaches, and the run
+        # would still be labelled completed.  Stop instead of advancing from an
+        # invalid state.
+        finite = all(
+            bool(jnp.all(jnp.isfinite(value))) for value in jax.tree.leaves(stepped)
+        )
+        if not bool(stats.converged) or not finite:
+            failures.append(
+                {
+                    "state_index": state_index,
+                    "time": time_value + config.dt,
+                    "converged": bool(stats.converged),
+                    "finite": finite,
+                    "newton_iters": int(stats.newton_iters),
+                    "final_residual_norm": float(stats.final_res_norm),
+                }
+            )
+            break
+        state = stepped
         _ready_state(state)
         time_value += config.dt
         for preconditioner_name, diagnostic_preconditioner in diagnostic_preconditioners:
@@ -394,10 +415,17 @@ def run_decision_demo(config: DemoConfig | None = None) -> dict[str, Any]:
             if state_index == 0 and plot_data is not None:
                 figure_data.append(plot_data)
 
-    completed = all(row["status"] == "completed" for row in states)
+    diagnostics_complete = all(row["status"] == "completed" for row in states)
+    if failures:
+        status = "failed"
+    elif not diagnostics_complete:
+        status = "completed_with_skips"
+    else:
+        status = "completed"
     return {
         "schema_version": "conditioning_decision_demo_v1",
-        "status": "completed" if completed else "completed_with_skips",
+        "status": status,
+        "implicit_step_failures": failures,
         "config": config._asdict(),
         "model": {
             "name": "gray_scott",

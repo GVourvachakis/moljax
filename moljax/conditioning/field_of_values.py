@@ -18,8 +18,6 @@ from collections.abc import Callable
 from typing import NamedTuple
 
 import jax
-
-jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 import numpy as np
 from jax.experimental.sparse.linalg import lobpcg_standard
@@ -41,6 +39,10 @@ class FieldOfValuesResult(NamedTuple):
         disk_rate: ``radius / abs(center)``; infinity when the centre is zero.
         origin_enclosed: Whether the origin belongs to the convex boundary.
         cp_prefactor: The Crouzeix--Palencia spectral-set prefactor.
+        max_support_residual: Largest relative eigenpair residual over the
+            support directions.  Reports how well the boundary is resolved so
+            that the disk rate can be read with its convergence quality in
+            view, rather than trusting an unqualified number.
     """
 
     boundary: jax.Array
@@ -49,6 +51,7 @@ class FieldOfValuesResult(NamedTuple):
     disk_rate: float
     origin_enclosed: bool
     cp_prefactor: float
+    max_support_residual: float = 0.0
 
 
 def _complex_action(action: Matvec, value: jax.Array) -> jax.Array:
@@ -92,8 +95,9 @@ def _largest_hermitian_eigenvector(
     theta: float,
     max_iters: int,
     tolerance: float,
-) -> jax.Array:
-    """Find a dominant eigenvector using a scaled matrix-free LOBPCG solve."""
+    residual_tolerance: float,
+) -> tuple[jax.Array, float]:
+    """Find a dominant eigenvector and its relative eigenpair residual."""
     real_dimension = 2 * n
     # Realification represents every complex eigenvector by two real vectors,
     # so request a two-vector block to resolve that unavoidable multiplicity.
@@ -126,9 +130,28 @@ def _largest_hermitian_eigenvector(
         m=max_iters,
         tol=tolerance,
     )
-    real_vector = vectors[:real_dimension, 0]
+    candidate = vectors[:, 0]
+    # lobpcg_standard reports neither convergence nor a residual, so an
+    # iteration budget that is too small returns a vector that is not an
+    # eigenvector at all.  Accepting it would place the support point in the
+    # interior of the numerical range, understating the radius and, with it,
+    # the disk rate that the adequacy verdict is read from.  Validate the
+    # eigenpair before trusting it.
+    action_value = shifted_action(candidate)
+    rayleigh = jnp.real(jnp.vdot(candidate, action_value))
+    residual = float(jnp.linalg.norm(action_value - rayleigh * candidate))
+    relative = residual / max(float(abs(rayleigh)), 1.0)
+    if not math.isfinite(relative) or relative > residual_tolerance:
+        raise RuntimeError(
+            "numerical-range support did not converge at theta="
+            f"{theta:.6f}: relative eigenpair residual {relative:.3e} exceeds "
+            f"{residual_tolerance:.3e} after {max_iters} LOBPCG iterations. "
+            "Increase max_iters, or loosen residual_tolerance only if an "
+            "approximate boundary is acceptable."
+        )
+    real_vector = candidate[:real_dimension]
     vector = real_vector[:n] + 1j * real_vector[n:]
-    return vector / jnp.linalg.norm(vector)
+    return vector / jnp.linalg.norm(vector), relative
 
 
 def numerical_range(
@@ -140,6 +163,7 @@ def numerical_range(
     dtype: jnp.dtype = jnp.complex128,
     max_iters: int = 120,
     tolerance: float = 1.0e-13,
+    residual_tolerance: float = 1.0e-3,
 ) -> FieldOfValuesResult:
     """Trace a matrix-free numerical-range boundary using Johnson supports.
 
@@ -152,6 +176,9 @@ def numerical_range(
             ``complex128`` to provide float64 accuracy.
         max_iters: Maximum matrix-free LOBPCG iterations per direction.
         tolerance: Relative eigensolver tolerance.
+        residual_tolerance: Largest relative eigenpair residual accepted for a
+            support direction.  Exceeding it raises rather than returning a
+            boundary point that is not on the boundary.
 
     Returns:
         A numerical-range boundary and enclosing-disk diagnostics.
@@ -159,6 +186,8 @@ def numerical_range(
     Raises:
         ValueError: If the dimension, angle count, dtype, or iteration count
             is invalid.
+        RuntimeError: If a support direction fails to converge within
+            ``max_iters`` to ``residual_tolerance``.
     """
     if n < 1:
         raise ValueError("n must be positive")
@@ -168,18 +197,28 @@ def numerical_range(
         raise ValueError("max_iters must be positive")
     if jnp.dtype(dtype) != jnp.dtype(jnp.complex128):
         raise ValueError("numerical-range diagnostics require dtype=jnp.complex128")
+    if residual_tolerance <= 0.0:
+        raise ValueError("residual_tolerance must be positive")
+    if not jax.config.jax_enable_x64:
+        raise RuntimeError(
+            "conditioning diagnostics require 64-bit precision; enable it with "
+            'jax.config.update("jax_enable_x64", True) before calling.'
+        )
 
     boundary: list[jax.Array] = []
+    worst_residual = 0.0
     for index in range(n_angles):
         theta = 2.0 * math.pi * index / n_angles
         hermitian = _rotated_hermitian_action(matvec, matvec_adjoint, theta)
-        vector = _largest_hermitian_eigenvector(
+        vector, support_residual = _largest_hermitian_eigenvector(
             hermitian,
             n,
             theta,
             max_iters,
             tolerance,
+            residual_tolerance,
         )
+        worst_residual = max(worst_residual, support_residual)
         boundary.append(jnp.vdot(vector, _complex_action(matvec, vector)))
     boundary_array = jnp.asarray(boundary, dtype=jnp.complex128)
 
@@ -194,4 +233,5 @@ def numerical_range(
         disk_rate=float(disk_rate),
         origin_enclosed=_origin_enclosed(boundary_host),
         cp_prefactor=_CP_PREFACTOR,
+        max_support_residual=worst_residual,
     )

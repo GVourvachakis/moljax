@@ -20,7 +20,7 @@ def test_small_diffusion_decision_demo(tmp_path):
             dt=2.0,
             n_states=1,
             n_angles=4,
-            fov_max_iters=12,
+            fov_max_iters=60,
             arnoldi_steps=3,
             pseudospectrum_points=3,
             overhead_runs=5,

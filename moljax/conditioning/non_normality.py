@@ -11,8 +11,6 @@ import math
 from typing import NamedTuple
 
 import jax
-
-jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 
 from moljax.conditioning._geometry import _smallest_enclosing_disk
