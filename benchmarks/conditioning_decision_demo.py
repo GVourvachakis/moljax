@@ -262,8 +262,14 @@ def _run_state_diagnostics(
             "one_preconditioned_action": baseline,
             "diagnostic_wall_time_s": diagnostic_cost,
             "diagnostic_to_median_action": diagnostic_cost / max(baseline_median, 1.0e-30),
-            "extra_forward_matvecs": counter["matvec"],
-            "extra_adjoint_matvecs": counter["adjoint"],
+            # Host-side invocation counts only.  LOBPCG runs its iterations
+            # inside a staged JAX loop, which traces the operator once no
+            # matter how many iterations execute, so these numbers exclude the
+            # bulk of the eigensolver work and must not be read as a device
+            # operation count.  diagnostic_wall_time_s is the honest cost.
+            "host_forward_calls": counter["matvec"],
+            "host_adjoint_calls": counter["adjoint"],
+            "host_call_counts_exclude_staged_loops": True,
             "arnoldi_steps": int(hessenberg.shape[1]),
         },
     }

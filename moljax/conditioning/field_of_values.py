@@ -22,7 +22,11 @@ import jax.numpy as jnp
 import numpy as np
 from jax.experimental.sparse.linalg import lobpcg_standard
 
-from moljax.conditioning._geometry import _origin_enclosed, _smallest_enclosing_disk
+from moljax.conditioning._geometry import (
+    _origin_enclosed,
+    _smallest_enclosing_disk,
+    _support_outer_polygon,
+)
 from moljax.laplace.spectral_bounds import power_iteration_rho
 
 Matvec = Callable[[jax.Array], jax.Array]
@@ -34,10 +38,15 @@ class FieldOfValuesResult(NamedTuple):
 
     Attributes:
         boundary: Johnson support points ordered by their sweep direction.
-        center: Centre of the minimum enclosing disk of ``boundary``.
-        radius: Radius of the minimum enclosing disk of ``boundary``.
+        center: Centre of the minimum disk enclosing the support half-plane
+            intersection, which contains the numerical range.
+        radius: Radius of that disk.  This is an outer bound, so it never
+            understates the range.
         disk_rate: ``radius / abs(center)``; infinity when the centre is zero.
-        origin_enclosed: Whether the origin belongs to the convex boundary.
+        origin_enclosed: Whether the origin fails to be certified outside the
+            numerical range.  ``False`` means a sampled support direction
+            separates the origin from the range, which is a proof; ``True``
+            means no such certificate was found and the caller should abstain.
         cp_prefactor: The Crouzeix--Palencia spectral-set prefactor.
         max_support_residual: Largest relative eigenpair residual over the
             support directions.  Reports how well the boundary is resolved so
@@ -206,9 +215,11 @@ def numerical_range(
         )
 
     boundary: list[jax.Array] = []
+    thetas: list[float] = []
     worst_residual = 0.0
     for index in range(n_angles):
         theta = 2.0 * math.pi * index / n_angles
+        thetas.append(theta)
         hermitian = _rotated_hermitian_action(matvec, matvec_adjoint, theta)
         vector, support_residual = _largest_hermitian_eigenvector(
             hermitian,
@@ -223,15 +234,33 @@ def numerical_range(
     boundary_array = jnp.asarray(boundary, dtype=jnp.complex128)
 
     boundary_host = np.asarray(boundary_array, dtype=np.complex128)
-    center, radius = _smallest_enclosing_disk(boundary_host)
+    theta_host = np.asarray(thetas, dtype=np.float64)
+
+    # The sampled boundary points are an inscribed approximation of the
+    # numerical range, so a disk fitted to them can be smaller than the range
+    # itself and the origin can fall outside their hull while lying inside the
+    # range.  Both errors push the verdict toward a false certificate.  Fit the
+    # disk to the half-plane intersection instead, which provably contains the
+    # range, and certify the origin only when a sampled direction separates it.
+    supports = np.real(np.exp(1j * theta_host) * boundary_host)
+    outer = _support_outer_polygon(theta_host, supports)
+    center, radius = _smallest_enclosing_disk(outer)
     center_magnitude = abs(center)
     disk_rate = math.inf if center_magnitude == 0.0 else radius / center_magnitude
+    # A negative support value is a separating half-plane and therefore a
+    # certificate that the origin lies outside.  Without one, report the origin
+    # as enclosed so the caller abstains rather than certifies.
+    origin_outside_certified = bool(np.min(supports) < 0.0)
+    origin_enclosed = not origin_outside_certified
+    if not origin_enclosed:
+        # Sanity: an inscribed-hull enclosure would contradict the certificate.
+        origin_enclosed = bool(_origin_enclosed(boundary_host))
     return FieldOfValuesResult(
         boundary=boundary_array,
         center=center,
         radius=float(radius),
         disk_rate=float(disk_rate),
-        origin_enclosed=_origin_enclosed(boundary_host),
+        origin_enclosed=origin_enclosed,
         cp_prefactor=_CP_PREFACTOR,
         max_support_residual=worst_residual,
     )

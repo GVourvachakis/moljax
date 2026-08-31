@@ -140,3 +140,45 @@ def _origin_enclosed(points: np.ndarray) -> bool:
         ).real < -tolerance:
             return False
     return True
+
+
+def _support_outer_polygon(
+    thetas: np.ndarray, supports: np.ndarray
+) -> np.ndarray:
+    """Return vertices of the half-plane intersection implied by support values.
+
+    Johnson sampling yields, for each direction ``theta``, the exact support
+    value ``h(theta) = max Re(e^{i theta} z)`` over the numerical range.  The
+    sampled boundary points themselves form an *inscribed* polygon, which
+    under-states the range; the half-planes ``Re(e^{i theta} z) <= h(theta)``
+    instead intersect in a polygon that provably *contains* it.
+
+    The distinction decides verdict soundness.  If ``0`` lies in the numerical
+    range and the enclosing disk is a genuine outer bound ``(c, R)``, then
+    ``|c| = |c - 0| <= R`` forces ``disk_rate >= 1``, so an adequacy threshold
+    below one can never certify an operator whose range contains the origin.
+    Computing the disk from inscribed points loses that guarantee.
+    """
+    count = thetas.size
+    if count < 3:
+        raise ValueError("an outer polygon requires at least three directions")
+    vertices: list[complex] = []
+    for index in range(count):
+        next_index = (index + 1) % count
+        first, second = thetas[index], thetas[next_index]
+        matrix = np.asarray(
+            [
+                [np.cos(first), -np.sin(first)],
+                [np.cos(second), -np.sin(second)],
+            ]
+        )
+        if abs(np.linalg.det(matrix)) <= 1.0e-12:
+            # Parallel supports contribute no finite vertex.
+            continue
+        point = np.linalg.solve(
+            matrix, np.asarray([supports[index], supports[next_index]])
+        )
+        vertices.append(complex(point[0], point[1]))
+    if not vertices:
+        raise ValueError("support directions produced no finite outer vertex")
+    return np.asarray(vertices, dtype=np.complex128)

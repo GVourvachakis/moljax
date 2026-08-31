@@ -105,3 +105,63 @@ class TestFailedImplicitStepIsNotReportedComplete:
         assert result["implicit_step_failures"][0]["converged"] is False
         # No verdict may be emitted for a state the solver never reached.
         assert result["states"] == []
+
+
+class TestSampledBoundaryIsNotTreatedAsEnclosure:
+    """A coarse sweep must not certify an operator whose range contains zero.
+
+    Johnson support points form an *inscribed* polygon of the numerical range.
+    Fitting the disk to them understates the radius and testing the origin
+    against their hull understates enclosure, so a coarse sweep could certify
+    an operator whose range contains the origin.  The disk is therefore fitted
+    to the half-plane intersection, which contains the range: since
+    ``0 in W`` and ``W subset disk(c, R)`` force ``|c| <= R``, a correct outer
+    bound always yields ``disk_rate >= 1`` and can never be adequate.
+    """
+
+    @staticmethod
+    def _origin_containing_operator(m: int = 24):
+        # Eigenvalues on a circle of radius 1 about a centre of modulus 0.9, so
+        # the origin lies strictly inside W(A).  The centre sits at -45 degrees
+        # so the closest approach to the origin falls between the directions a
+        # four-angle sweep samples.
+        centre = 0.9 * np.exp(-1j * np.pi / 4)
+        diag = jnp.asarray(centre + np.exp(2j * np.pi * np.arange(m) / m))
+        return (lambda v: diag * v), (lambda v: jnp.conj(diag) * v), centre
+
+    @pytest.mark.slow
+    @pytest.mark.parametrize("n_angles", [4, 6, 8, 32])
+    def test_origin_containing_range_is_never_adequate(self, n_angles: int) -> None:
+        from moljax.conditioning.non_normality import assess_preconditioner
+        from moljax.conditioning.pseudospectra import arnoldi, ritz_values
+
+        m = 24
+        matvec, adjoint, centre = self._origin_containing_operator(m)
+        result = numerical_range(matvec, adjoint, m, n_angles=n_angles, max_iters=150)
+        v0 = jnp.asarray(np.random.default_rng(0).standard_normal(m) + 0j)
+        ritz = ritz_values(arnoldi(matvec, v0, 12)[0])
+        assessment = assess_preconditioner(result, ritz, epsilon_zero=float(abs(centre)))
+        # The outer bound must never understate a range that contains zero.
+        assert result.disk_rate >= 1.0
+        assert assessment.verdict != "adequate"
+
+    @pytest.mark.slow
+    def test_outer_bound_converges_from_above(self) -> None:
+        m = 24
+        matvec, adjoint, _ = self._origin_containing_operator(m)
+        coarse = numerical_range(matvec, adjoint, m, n_angles=4, max_iters=150)
+        fine = numerical_range(matvec, adjoint, m, n_angles=32, max_iters=150)
+        # Refining directions may only tighten a genuine outer bound.
+        assert coarse.disk_rate >= fine.disk_rate
+
+    @pytest.mark.slow
+    def test_origin_outside_is_still_certified(self) -> None:
+        """The conservative rule must not destroy true negatives."""
+        m = 24
+        diag = jnp.asarray(np.linspace(0.8, 1.2, m))
+        result = numerical_range(
+            lambda v: diag * v, lambda v: jnp.conj(diag) * v, m,
+            n_angles=16, max_iters=150,
+        )
+        assert not result.origin_enclosed
+        assert result.disk_rate < 1.0
