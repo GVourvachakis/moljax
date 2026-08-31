@@ -12,6 +12,7 @@ from typing import NamedTuple
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 from moljax.conditioning._geometry import _smallest_enclosing_disk
 from moljax.conditioning.field_of_values import FieldOfValuesResult
@@ -217,6 +218,34 @@ def right_real_outliers(
     return int(jnp.count_nonzero(jnp.real(values) > threshold))
 
 
+_REAL_BULK_RELATIVE_FLOOR = 1.0e-6
+
+
+def real_bulk_outliers(ritz: jax.Array, *, factor: float = _BULK_OUTLIER_FACTOR) -> int:
+    """Count Ritz values whose real part sits beyond a robust real-part bulk.
+
+    This deliberately ignores imaginary parts and does not reuse ``_bulk_disk``.
+    That helper requires a candidate outlier set to be near-real relative to the
+    bulk radius, and when no candidate passes it falls back to a disk enclosing
+    every Ritz value.  Counting beyond such a disk is guaranteed to return zero,
+    so a bulk-model failure would read as "no outliers" rather than as "no
+    model".  Two spectra defeat it that way: a tight real bulk carrying
+    roundoff-sized imaginary parts, whose bulk radius is zero, and a real
+    outlier accompanied by a farther complex pair.
+
+    An interquartile threshold on the real parts has neither failure mode.  The
+    relative floor keeps a numerically degenerate bulk, where the quartiles
+    coincide, from flagging its own roundoff.
+    """
+    values = jnp.asarray(ritz, dtype=jnp.complex128)
+    if values.ndim != 1 or values.size == 0:
+        raise ValueError("ritz must be a nonempty one-dimensional array")
+    reals = np.asarray(jnp.real(values), dtype=np.float64)
+    lower, middle, upper = (float(v) for v in np.percentile(reals, [25.0, 50.0, 75.0]))
+    spread = max(upper - lower, _REAL_BULK_RELATIVE_FLOOR * max(abs(middle), 1.0))
+    return int(np.count_nonzero(reals > upper + factor * spread))
+
+
 def _rate_agreement(rates: tuple[float, float, float]) -> bool:
     """Return whether finite rate estimates agree to a five-percent tolerance."""
     finite = [rate for rate in rates if math.isfinite(rate)]
@@ -259,8 +288,19 @@ def assess_preconditioner(
     diagnostic complements rather than a standalone performance verdict.
     """
     rates = estimate_rates(fov, ritz)
-    n_outliers = right_real_outliers(ritz, fov.center, fov.radius)
-    if fov.origin_enclosed:
+    # The outlier count must be measured against an independent cluster model.
+    # fov.center/fov.radius now describe a disk that provably contains the whole
+    # numerical range, and Ritz values of an Arnoldi compression always lie in
+    # that range, so no Ritz value can ever exceed its right edge: measured
+    # there, the count is identically zero and max_right_real_outliers can
+    # never reject anything.  The Ritz bulk disk is the model that can.
+    n_outliers = real_bulk_outliers(ritz)
+    if not fov.supports_corroborated:
+        # The outer-bound property holds only if each support really is the
+        # maximum in its direction.  Independent restarts disagreed, so that
+        # condition is known to be unmet and nothing here can be certified.
+        verdict = "indeterminate"
+    elif fov.origin_enclosed:
         verdict = "indeterminate"
     elif (
         fov.disk_rate <= rate_threshold

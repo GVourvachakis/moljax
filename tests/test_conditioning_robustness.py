@@ -139,7 +139,7 @@ class TestSampledBoundaryIsNotTreatedAsEnclosure:
         matvec, adjoint, centre = self._origin_containing_operator(m)
         result = numerical_range(matvec, adjoint, m, n_angles=n_angles, max_iters=150)
         v0 = jnp.asarray(np.random.default_rng(0).standard_normal(m) + 0j)
-        ritz = ritz_values(arnoldi(matvec, v0, 12)[0])
+        ritz = ritz_values(arnoldi(matvec, v0, 12)[1])
         assessment = assess_preconditioner(result, ritz, epsilon_zero=float(abs(centre)))
         # The outer bound must never understate a range that contains zero.
         assert result.disk_rate >= 1.0
@@ -165,3 +165,210 @@ class TestSampledBoundaryIsNotTreatedAsEnclosure:
         )
         assert not result.origin_enclosed
         assert result.disk_rate < 1.0
+
+
+class TestOutlierGateCanActuallyReject:
+    """The outlier count must be measured against an independent model.
+
+    ``fov.center``/``fov.radius`` describe a disk that provably contains the
+    whole numerical range, and Ritz values of an Arnoldi compression always lie
+    in that range, so measured against it the count is identically zero and
+    ``max_right_real_outliers`` could never reject anything.
+    """
+
+    @pytest.mark.slow
+    def test_planted_rightmost_ritz_value_is_rejected(self) -> None:
+        from moljax.conditioning.non_normality import assess_preconditioner
+        from moljax.conditioning.pseudospectra import arnoldi, ritz_values
+
+        m = 24
+        # Tight bulk on [1.00, 1.23] with one far-right eigenvalue planted.
+        diag = jnp.asarray(np.concatenate([1.0 + 0.01 * np.arange(m - 1), [6.0]]) + 0j)
+        matvec = lambda v: diag * v  # noqa: E731
+        adjoint = lambda v: jnp.conj(diag) * v  # noqa: E731
+        fov = numerical_range(matvec, adjoint, m, n_angles=16, max_iters=200)
+        v0 = jnp.asarray(np.random.default_rng(0).standard_normal(m) + 0j)
+        ritz = ritz_values(arnoldi(matvec, v0, 14)[1])
+
+        assessment = assess_preconditioner(fov, ritz, epsilon_zero=0.9)
+        assert assessment.n_right_real_outliers >= 1
+        assert assessment.verdict != "adequate"
+
+    def test_enclosing_disk_would_be_vacuous(self) -> None:
+        """Pin the reason the gate must not use the enclosing disk."""
+        from moljax.conditioning._geometry import _smallest_enclosing_disk
+        from moljax.conditioning.non_normality import right_real_outliers
+
+        ritz = jnp.asarray(np.concatenate([np.full(10, 1.0), [5.0]]) + 0j)
+        center, radius = _smallest_enclosing_disk(np.asarray(ritz))
+        # Measured against a disk that encloses every Ritz value, nothing can
+        # ever exceed the right edge.
+        assert right_real_outliers(ritz, center, radius) == 0
+
+
+class TestSupportSurvivesAnAdversarialStartBlock:
+    """A start block aligned against the dominant eigenspace must not win.
+
+    LOBPCG explores only the space its initial block generates.  A block
+    orthogonal to the dominant invariant subspace can converge to a
+    subdominant eigenpair with a near-zero residual, which the residual gate
+    would accept, understating the support and breaking the outer bound.  The
+    block therefore carries a seeded random direction.
+    """
+
+    @pytest.mark.slow
+    def test_orthogonal_start_block_still_finds_the_dominant_mode(self) -> None:
+        n = 16
+        theta = 0.0
+        init = np.sin(np.arange(n) + theta + 1.0) + 1j * np.cos(
+            np.arange(n) + 0.5 * theta + 0.5
+        )
+        first = np.concatenate([init.real, init.imag])
+        second = np.roll(first, 1)
+
+        def constraint_rows(vector: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+            real_part, imag_part = vector[:n], vector[n:]
+            return (
+                np.concatenate([real_part, imag_part]),
+                np.concatenate([imag_part, -real_part]),
+            )
+
+        rows = np.vstack([*constraint_rows(first), *constraint_rows(second)])
+        null_space = np.linalg.svd(rows)[2][4:]
+        candidate = null_space[0]
+        dominant = candidate[:n] + 1j * candidate[n:]
+        dominant /= np.linalg.norm(dominant)
+
+        projector = np.outer(dominant, dominant.conj())
+        operator = 10.0 * projector + 1.0 * (np.eye(n) - projector)
+        matrix = jnp.asarray(operator)
+        result = numerical_range(
+            lambda v: matrix @ v,
+            lambda v: jnp.conj(matrix).T @ v,
+            n,
+            n_angles=8,
+            max_iters=200,
+        )
+        # The dominant eigenvalue is 10; a missed mode would report near 1.
+        assert float(np.real(np.asarray(result.boundary)[0])) == pytest.approx(
+            10.0, abs=1.0e-6
+        )
+
+
+class TestRealBulkOutlierDetection:
+    """The right-real gate must not depend on complex clustering succeeding.
+
+    ``_bulk_disk`` requires a candidate outlier set to be near-real relative to
+    the bulk radius, and falls back to a disk enclosing every Ritz value when
+    none qualifies.  Counting beyond that fallback always returns zero, so a
+    bulk-model failure would read as "no outliers" instead of "no model".
+    """
+
+    @pytest.mark.parametrize(
+        ("name", "values", "expect_outliers"),
+        [
+            # A real outlier hidden behind a farther complex pair.
+            ("real outlier plus complex pair",
+             np.concatenate([np.full(17, 1.0), [5.0], [6 + 0.1j, 6 - 0.1j]]), True),
+            # A degenerate bulk whose radius is zero under roundoff imaginary parts.
+            ("roundoff imaginary bulk",
+             np.concatenate([np.full(10, 1.0), [5 + 1e-16j]]), True),
+            ("plain real outlier",
+             np.concatenate([np.full(10, 1.0), [5.0]]), True),
+            # Legitimately tight clusters must not flag their own noise.
+            ("tight legitimate cluster", np.linspace(1.0, 1.01, 20) + 0j, False),
+            ("identical bulk with roundoff imag", np.full(20, 1.0) + 1e-16j, False),
+            ("identical bulk with roundoff real",
+             1.0 + 1e-14 * np.arange(20) + 0j, False),
+        ],
+    )
+    def test_detects_real_outliers_without_false_alarms(
+        self, name: str, values: np.ndarray, expect_outliers: bool
+    ) -> None:
+        from moljax.conditioning.non_normality import real_bulk_outliers
+
+        count = real_bulk_outliers(jnp.asarray(values.astype(np.complex128)))
+        assert (count > 0) is expect_outliers, f"{name}: got {count}"
+
+    def test_enclosing_fallback_would_hide_them(self) -> None:
+        """Pin why the bulk disk cannot be reused for this gate."""
+        from moljax.conditioning.non_normality import _bulk_disk, right_real_outliers
+
+        values = jnp.asarray(
+            np.concatenate([np.full(17, 1.0), [5.0], [6 + 0.1j, 6 - 0.1j]]).astype(
+                np.complex128
+            )
+        )
+        center, radius = _bulk_disk(values)
+        assert right_real_outliers(values, center, radius, factor=3.0) == 0
+
+
+class TestSupportsAreCorroboratedNotCertified:
+    """No fixed start can prove it found a global maximum, so say so."""
+
+    @pytest.mark.slow
+    def test_dominant_mode_orthogonal_to_every_start_column(self) -> None:
+        """Constrain against all three columns of the first start block."""
+        n, theta = 24, 0.0
+        pad = max(2 * n, 16)
+        init = np.sin(np.arange(n) + theta + 1.0) + 1j * np.cos(
+            np.arange(n) + 0.5 * theta + 0.5
+        )
+        first = np.pad(np.concatenate([init.real, init.imag]), (0, pad - 2 * n))
+        second = np.roll(first, 1)
+        key = jax.random.PRNGKey((int(theta * 1_000_003) + 0) & 0x7FFFFFFF)
+        third = np.asarray(jax.random.normal(key, (pad,), dtype=jnp.float64))
+
+        def constraint_rows(vector: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+            real_part, imag_part = vector[:n], vector[n : 2 * n]
+            return (
+                np.concatenate([real_part, imag_part]),
+                np.concatenate([imag_part, -real_part]),
+            )
+
+        rows = np.vstack(
+            [row for column in (first, second, third) for row in constraint_rows(column)]
+        )
+        dominant = np.linalg.svd(rows)[2][rows.shape[0] :][0]
+        dominant = dominant[:n] + 1j * dominant[n:]
+        dominant /= np.linalg.norm(dominant)
+
+        operator = np.eye(n) + 9.0 * np.outer(dominant, dominant.conj())
+        matrix = jnp.asarray(operator)
+        result = numerical_range(
+            lambda v: matrix @ v,
+            lambda v: jnp.conj(matrix).T @ v,
+            n,
+            n_angles=8,
+            max_iters=200,
+        )
+        assert float(np.real(np.asarray(result.boundary)[0])) == pytest.approx(
+            10.0, abs=1.0e-6
+        )
+
+    def test_result_reports_corroboration(self) -> None:
+        m = 16
+        diag = jnp.asarray(np.linspace(0.8, 1.2, m))
+        result = numerical_range(
+            lambda v: diag * v, lambda v: jnp.conj(diag) * v, m,
+            n_angles=8, max_iters=150, n_restarts=2,
+        )
+        assert result.supports_corroborated is True
+
+    def test_uncorroborated_supports_cannot_be_adequate(self) -> None:
+        """A cleared corroboration flag must force abstention."""
+        from moljax.conditioning.non_normality import assess_preconditioner
+
+        m = 16
+        diag = jnp.asarray(np.linspace(0.8, 1.2, m))
+        good = numerical_range(
+            lambda v: diag * v, lambda v: jnp.conj(diag) * v, m,
+            n_angles=8, max_iters=150,
+        )
+        ritz = jnp.asarray(np.linspace(0.8, 1.2, 8) + 0j)
+        assert assess_preconditioner(good, ritz, epsilon_zero=0.8).verdict == "adequate"
+        doubtful = good._replace(supports_corroborated=False)
+        assert (
+            assess_preconditioner(doubtful, ritz, epsilon_zero=0.8).verdict
+            == "indeterminate"
+        )

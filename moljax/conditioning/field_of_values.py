@@ -52,6 +52,11 @@ class FieldOfValuesResult(NamedTuple):
             support directions.  Reports how well the boundary is resolved so
             that the disk rate can be read with its convergence quality in
             view, rather than trusting an unqualified number.
+        supports_corroborated: Whether independent eigensolver restarts agreed
+            on every support value.  No fixed starting block can *prove* it
+            found a global maximum, so the outer-bound property is conditional
+            on the supports being true maxima.  When restarts disagree, that
+            condition is known to be unmet and callers must not certify.
     """
 
     boundary: jax.Array
@@ -61,6 +66,7 @@ class FieldOfValuesResult(NamedTuple):
     origin_enclosed: bool
     cp_prefactor: float
     max_support_residual: float = 0.0
+    supports_corroborated: bool = True
 
 
 def _complex_action(action: Matvec, value: jax.Array) -> jax.Array:
@@ -105,12 +111,17 @@ def _largest_hermitian_eigenvector(
     max_iters: int,
     tolerance: float,
     residual_tolerance: float,
+    restart: int,
 ) -> tuple[jax.Array, float]:
     """Find a dominant eigenvector and its relative eigenpair residual."""
     real_dimension = 2 * n
     # Realification represents every complex eigenvector by two real vectors,
-    # so request a two-vector block to resolve that unavoidable multiplicity.
-    padded_dimension = max(real_dimension, 11)
+    # so the block needs two columns to resolve that unavoidable multiplicity,
+    # plus a third random direction guarding against a start block aligned
+    # against the dominant eigenspace.  lobpcg_standard requires
+    # 5 * block_width < dimension, so pad to satisfy that.
+    block_width = 3
+    padded_dimension = max(real_dimension, 5 * block_width + 1)
     real_action = _realified_action(action, n)
     initial_complex = jnp.sin(jnp.arange(n, dtype=jnp.float64) + theta + 1.0) + 1j * jnp.cos(
         jnp.arange(n, dtype=jnp.float64) + 0.5 * theta + 0.5
@@ -132,7 +143,29 @@ def _largest_hermitian_eigenvector(
         return jnp.pad(shifted, ((0, padded_dimension - real_dimension), (0, 0)))
 
     padded_initial = jnp.pad(initial_real, (0, padded_dimension - real_dimension))
-    initial_block = jnp.column_stack((padded_initial, jnp.roll(padded_initial, 1)))
+    # A fixed starting block can, in principle, be orthogonal to the dominant
+    # invariant subspace, in which case LOBPCG converges to a subdominant
+    # eigenpair with a small residual and the residual gate below accepts it.
+    # The reported support would then be too small and the half-plane would no
+    # longer contain the numerical range, breaking the outer-bound guarantee.
+    # A third pseudo-random direction, seeded from the sweep angle so runs stay
+    # reproducible, makes such an alignment a probability-zero event.
+    probe_key = jax.random.PRNGKey(
+        (int(theta * 1_000_003) + 7_919 * restart) & 0x7FFFFFFF
+    )
+    random_column = jax.random.normal(probe_key, (padded_dimension,), dtype=jnp.float64)
+    if restart == 0:
+        initial_block = jnp.column_stack(
+            (padded_initial, jnp.roll(padded_initial, 1), random_column)
+        )
+    else:
+        # Later attempts start from an entirely independent space, so a
+        # dominant eigenspace orthogonal to the first attempt's columns is not
+        # also orthogonal to these.
+        extra = jax.random.normal(
+            jax.random.fold_in(probe_key, 1), (padded_dimension, 2), dtype=jnp.float64
+        )
+        initial_block = jnp.column_stack((random_column, extra))
     _, vectors, _ = lobpcg_standard(
         shifted_action,
         initial_block,
@@ -173,6 +206,7 @@ def numerical_range(
     max_iters: int = 120,
     tolerance: float = 1.0e-13,
     residual_tolerance: float = 1.0e-3,
+    n_restarts: int = 2,
 ) -> FieldOfValuesResult:
     """Trace a matrix-free numerical-range boundary using Johnson supports.
 
@@ -188,6 +222,10 @@ def numerical_range(
         residual_tolerance: Largest relative eigenpair residual accepted for a
             support direction.  Exceeding it raises rather than returning a
             boundary point that is not on the boundary.
+        n_restarts: Independent eigensolver starts per direction.  A single
+            fixed start cannot establish that it found a global maximum, so
+            restarts corroborate it; disagreement clears
+            ``supports_corroborated``.
 
     Returns:
         A numerical-range boundary and enclosing-disk diagnostics.
@@ -208,6 +246,8 @@ def numerical_range(
         raise ValueError("numerical-range diagnostics require dtype=jnp.complex128")
     if residual_tolerance <= 0.0:
         raise ValueError("residual_tolerance must be positive")
+    if n_restarts < 1:
+        raise ValueError("n_restarts must be positive")
     if not jax.config.jax_enable_x64:
         raise RuntimeError(
             "conditioning diagnostics require 64-bit precision; enable it with "
@@ -217,19 +257,38 @@ def numerical_range(
     boundary: list[jax.Array] = []
     thetas: list[float] = []
     worst_residual = 0.0
+    corroborated = True
     for index in range(n_angles):
         theta = 2.0 * math.pi * index / n_angles
         thetas.append(theta)
         hermitian = _rotated_hermitian_action(matvec, matvec_adjoint, theta)
-        vector, support_residual = _largest_hermitian_eigenvector(
-            hermitian,
-            n,
-            theta,
-            max_iters,
-            tolerance,
-            residual_tolerance,
-        )
-        worst_residual = max(worst_residual, support_residual)
+        rotation = complex(math.cos(theta), math.sin(theta))
+        best_vector: jax.Array | None = None
+        best_support = -math.inf
+        attempt_supports: list[float] = []
+        for restart in range(n_restarts):
+            candidate, support_residual = _largest_hermitian_eigenvector(
+                hermitian,
+                n,
+                theta,
+                max_iters,
+                tolerance,
+                residual_tolerance,
+                restart,
+            )
+            worst_residual = max(worst_residual, support_residual)
+            value = complex(jnp.vdot(candidate, _complex_action(matvec, candidate)))
+            attempt = (rotation * value).real
+            attempt_supports.append(attempt)
+            # Every Rayleigh quotient is a lower bound on the true support, so
+            # keeping the largest attempt is always the safe direction.
+            if attempt > best_support:
+                best_support, best_vector = attempt, candidate
+        if len(attempt_supports) > 1:
+            spread = max(attempt_supports) - min(attempt_supports)
+            if spread > residual_tolerance * max(abs(best_support), 1.0):
+                corroborated = False
+        vector = best_vector
         boundary.append(jnp.vdot(vector, _complex_action(matvec, vector)))
     boundary_array = jnp.asarray(boundary, dtype=jnp.complex128)
 
@@ -263,4 +322,5 @@ def numerical_range(
         origin_enclosed=origin_enclosed,
         cp_prefactor=_CP_PREFACTOR,
         max_support_residual=worst_residual,
+        supports_corroborated=corroborated,
     )
