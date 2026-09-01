@@ -52,11 +52,12 @@ class FieldOfValuesResult(NamedTuple):
             support directions.  Reports how well the boundary is resolved so
             that the disk rate can be read with its convergence quality in
             view, rather than trusting an unqualified number.
-        supports_corroborated: Whether independent eigensolver restarts agreed
-            on every support value.  No fixed starting block can *prove* it
-            found a global maximum, so the outer-bound property is conditional
-            on the supports being true maxima.  When restarts disagree, that
-            condition is known to be unmet and callers must not certify.
+        supports_corroborated: Whether no eigensolver restart disagreed on a
+            support value.  No fixed starting block can *prove* it found a
+            global maximum, so the outer-bound property is conditional on the
+            supports being true maxima.  Disagreement shows that condition is
+            unmet; agreement is corroboration, not proof.  With the default
+            ``n_restarts=1`` no restart is run and the flag is vacuously true.
     """
 
     boundary: jax.Array
@@ -206,7 +207,7 @@ def numerical_range(
     max_iters: int = 120,
     tolerance: float = 1.0e-13,
     residual_tolerance: float = 1.0e-3,
-    n_restarts: int = 2,
+    n_restarts: int = 1,
 ) -> FieldOfValuesResult:
     """Trace a matrix-free numerical-range boundary using Johnson supports.
 
@@ -223,9 +224,12 @@ def numerical_range(
             support direction.  Exceeding it raises rather than returning a
             boundary point that is not on the boundary.
         n_restarts: Independent eigensolver starts per direction.  A single
-            fixed start cannot establish that it found a global maximum, so
-            restarts corroborate it; disagreement clears
-            ``supports_corroborated``.
+            fixed start cannot establish that it found a global maximum;
+            additional starts corroborate it, and disagreement clears
+            ``supports_corroborated``.  The default of one keeps the
+            diagnostic cheap, in which case no corroboration is attempted and
+            the flag is vacuously true.  Raise it when a verdict is load
+            bearing.
 
     Returns:
         A numerical-range boundary and enclosing-disk diagnostics.
