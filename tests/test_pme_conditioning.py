@@ -1001,14 +1001,24 @@ def test_budget_exhaustion_reports_the_measured_residual_of_a_rejected_estimate(
 
     With the inputs of the previous test and ``max_iters = 3`` the third
     column's rotated estimate (about ``5.8e-10``) passes ``tol`` but its
-    candidate measures about ``4.9e-5``; the budget then runs out.  The
-    non-convergence report must carry the measured value, not the estimate
-    already shown to be unreliable.
+    candidate's measured residual is orders of magnitude larger; the budget
+    then runs out.  The non-convergence report must carry that measurement,
+    not the estimate already shown to be unreliable.
     """
     diagonal = np.asarray((1.0, 1.0e-12, 2.0e-12, 3.0e-12))
     rhs = np.asarray((1.0, 1.0, 1.0, 1.0e-9))
-    stats = _counted_gmres(_diagonal_matvec(diagonal), jnp.asarray(rhs), tol=1.0e-8, max_iters=3)
+    matvec = _diagonal_matvec(diagonal)
+    matvec_inputs: list[np.ndarray] = []
+
+    def recording_matvec(vector: jax.Array) -> jax.Array:
+        matvec_inputs.append(np.asarray(vector))
+        return matvec(vector)
+
+    tol = 1.0e-8
+    stats = _counted_gmres(recording_matvec, jnp.asarray(rhs), tol=tol, max_iters=3)
+    rejected_candidate = matvec_inputs[-1]
+    measured = np.linalg.norm(rhs - diagonal * rejected_candidate) / np.linalg.norm(rhs)
 
     assert stats["converged"] is False
-    assert stats["final_relative_residual"] > 1.0e-8
-    assert stats["final_relative_residual"] == pytest.approx(4.9e-5, rel=0.05)
+    assert measured > 1_000.0 * tol
+    assert stats["final_relative_residual"] == pytest.approx(measured, rel=1.0e-12)
