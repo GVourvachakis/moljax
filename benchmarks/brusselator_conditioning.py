@@ -35,6 +35,7 @@ jax.config.update("jax_enable_x64", True)
 
 SOURCE_STATE_ARTIFACT_SCHEMA = "brusselator_conditioning_source_state_v4"
 SOURCE_STATE_MODEL_VERSION = "brusselator_periodic_fft_be_v1"
+RECORD_CHECKPOINT_SCHEMA = "brusselator_conditioning_record_checkpoint_v1"
 
 
 class BrusselatorConditioningConfig(NamedTuple):
@@ -62,6 +63,7 @@ class BrusselatorConditioningConfig(NamedTuple):
     regimes: tuple[str, ...] = ("hopf", "turing")
     output_path: str = "benchmarks/results/brusselator_conditioning.json"
     source_state_cache_dir: str | None = None
+    record_checkpoint_path: str | None = None
 
 
 def _config(mode: str, **kwargs: Any) -> BrusselatorConditioningConfig:
@@ -225,11 +227,85 @@ def _cache_directory(config: BrusselatorConditioningConfig) -> Path:
     return Path(config.output_path).parent / "brusselator_source_states"
 
 
+def _source_fingerprint_key(fingerprint: dict[str, Any]) -> str:
+    """Return a stable filesystem key for one full source-generation contract."""
+    encoded = json.dumps(fingerprint, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:16]
+
+
 def _cache_paths(
-    config: BrusselatorConditioningConfig, regime: Any
+    config: BrusselatorConditioningConfig, regime: Any, fingerprint: dict[str, Any]
 ) -> tuple[Path, Path]:
     root = _cache_directory(config)
-    return root / f"{regime.name}.npz", root / f"{regime.name}.json"
+    stem = f"{regime.name}-{_source_fingerprint_key(fingerprint)}"
+    return root / f"{stem}.npz", root / f"{stem}.json"
+
+
+def _diagnostic_contract(config: BrusselatorConditioningConfig) -> dict[str, Any]:
+    """Return the complete, JSON-stable contract for diagnostic checkpoints."""
+    return {
+        "source_artifact_schema": SOURCE_STATE_ARTIFACT_SCHEMA,
+        "mode": config.mode,
+        "grid": {"nx": config.nx, "ny": config.ny, "n_ghost": 1},
+        "dt": config.dt,
+        "perturbation": config.perturbation,
+        "seed": config.seed,
+        "n_angles": config.n_angles,
+        "fov_max_iters": config.fov_max_iters,
+        "fov_residual_tolerance": config.fov_residual_tolerance,
+        "fov_n_restarts": config.fov_n_restarts,
+        "arnoldi_steps": config.arnoldi_steps,
+        "compute_lobpcg_upper_estimate": config.compute_lobpcg_upper_estimate,
+        "max_newton_iters": config.max_newton_iters,
+        "max_krylov_iters": config.max_krylov_iters,
+        "newton_tol": config.newton_tol,
+        "krylov_tol": config.krylov_tol,
+        "n_states": config.n_states,
+        "hopf_sample_steps": list(config.hopf_sample_steps),
+        "turing_sample_steps": list(config.turing_sample_steps),
+        "regimes": list(config.regimes),
+        "model_version": SOURCE_STATE_MODEL_VERSION,
+    }
+
+
+def _diagnostic_fingerprint(config: BrusselatorConditioningConfig) -> str:
+    """Hash the immutable contract required to reuse diagnostic records."""
+    encoded = json.dumps(_diagnostic_contract(config), sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _load_record_checkpoint(config: BrusselatorConditioningConfig) -> dict[str, dict[str, Any]]:
+    """Load completed records only when the exact diagnostic contract matches."""
+    if config.record_checkpoint_path is None:
+        return {}
+    path = Path(config.record_checkpoint_path)
+    if not path.is_file():
+        return {}
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if payload.get("schema") != RECORD_CHECKPOINT_SCHEMA:
+        raise RuntimeError(f"incompatible record checkpoint schema: {path}")
+    if payload.get("diagnostic_fingerprint") != _diagnostic_fingerprint(config):
+        raise RuntimeError(f"record checkpoint diagnostic fingerprint mismatch: {path}")
+    records = payload.get("records")
+    if not isinstance(records, dict) or not all(isinstance(row, dict) for row in records.values()):
+        raise RuntimeError(f"record checkpoint is malformed: {path}")
+    return records
+
+
+def _persist_record_checkpoint(
+    config: BrusselatorConditioningConfig, records: dict[str, dict[str, Any]]
+) -> None:
+    """Atomically persist each completed diagnostic record for process-safe resume."""
+    if config.record_checkpoint_path is None:
+        return
+    _atomic_write_json(
+        Path(config.record_checkpoint_path),
+        {
+            "schema": RECORD_CHECKPOINT_SCHEMA,
+            "diagnostic_fingerprint": _diagnostic_fingerprint(config),
+            "records": records,
+        },
+    )
 
 
 def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -260,7 +336,7 @@ def _load_cached_states(
     fingerprint: dict[str, Any],
 ) -> tuple[list[dict[str, jax.Array]], list[dict[str, Any]]] | None:
     """Load a v4 source trajectory only when its contract and hashes match."""
-    array_path, manifest_path = _cache_paths(config, regime)
+    array_path, manifest_path = _cache_paths(config, regime, fingerprint)
     if not array_path.is_file() or not manifest_path.is_file():
         return None
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -292,7 +368,7 @@ def _persist_source_states(
     states: list[dict[str, jax.Array]],
 ) -> tuple[list[dict[str, jax.Array]], list[dict[str, Any]]]:
     """Persist, hash, and reload a successful source trajectory exactly once."""
-    array_path, manifest_path = _cache_paths(config, regime)
+    array_path, manifest_path = _cache_paths(config, regime, fingerprint)
     identities = [_source_state_identity(state) for state in states]
     _atomic_save_states(array_path, states)
     _atomic_write_json(
@@ -321,6 +397,7 @@ def _nk(config: BrusselatorConditioningConfig) -> NKParams:
 
 def _records(config: BrusselatorConditioningConfig) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
+    checkpoint_records = _load_record_checkpoint(config)
     regimes = tuple(
         regime for regime in (HOPF_REGIME, TURING_REGIME) if regime.name in config.regimes
     )
@@ -386,7 +463,7 @@ def _records(config: BrusselatorConditioningConfig) -> list[dict[str, Any]]:
                     (step, step * config.dt, state, state_developedness(state, grid, regime))
                     for step, state in zip(sample_steps, source_states, strict=True)
                 ]
-        array_path, _ = _cache_paths(config, regime)
+        array_path, _ = _cache_paths(config, regime, fingerprint)
         for sample_position, (index, time_value, state, developedness) in enumerate(samples):
             source_artifact = {
                 "schema": SOURCE_STATE_ARTIFACT_SCHEMA,
@@ -397,6 +474,19 @@ def _records(config: BrusselatorConditioningConfig) -> list[dict[str, Any]]:
                 "converged": True,
             }
             for kind in ("identity", "fft_diffusion"):
+                record_key = f"{regime.name}:{sample_position}:{kind}"
+                completed = checkpoint_records.get(record_key)
+                if completed is not None:
+                    if (
+                        completed.get("source_state_artifact") != source_artifact
+                        or completed.get("record_config", {}).get("preconditioner_kind") != kind
+                        or completed.get("record_config", {}).get("analysis_dt") != config.dt
+                    ):
+                        raise RuntimeError(
+                            f"record checkpoint does not match its source/operator contract: {record_key}"
+                        )
+                    records.append(completed)
+                    continue
                 assessment = assess_brusselator_state(
                     state,
                     model,
@@ -456,6 +546,8 @@ def _records(config: BrusselatorConditioningConfig) -> list[dict[str, Any]]:
                     row["trajectory_step"] = index
                     row["developedness"] = developedness
                 records.append(row)
+                checkpoint_records[record_key] = row
+                _persist_record_checkpoint(config, checkpoint_records)
     return records
 
 
@@ -770,7 +862,7 @@ def reassess_brusselator_record(
         krylov_tol=0.0,
         source_state_cache_dir=source_state_cache_dir,
     )
-    expected_path, _ = _cache_paths(replay, regime)
+    expected_path, _ = _cache_paths(replay, regime, fingerprint)
     if Path(artifact["relative_path"]) != expected_path:
         raise RuntimeError("record source-state artifact path does not match the replay cache")
     loaded = _load_cached_states(replay, regime, fingerprint)
@@ -815,12 +907,28 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--study", choices=sorted(PRESETS), default="screen_64")
     parser.add_argument("--output", type=Path)
+    parser.add_argument(
+        "--source-state-cache-dir",
+        type=Path,
+        help="persisted v4 source-state directory; reuse is SHA256/fingerprint verified",
+    )
+    parser.add_argument(
+        "--record-checkpoint",
+        type=Path,
+        help="atomic per-record diagnostic checkpoint for resumable regeneration",
+    )
     args = parser.parse_args()
-    config = PRESETS[args.study]
+    config = PRESETS[args.study]._replace(
+        source_state_cache_dir=(
+            None if args.source_state_cache_dir is None else str(args.source_state_cache_dir)
+        ),
+        record_checkpoint_path=(
+            None if args.record_checkpoint is None else str(args.record_checkpoint)
+        ),
+    )
     output = args.output or Path(config.output_path)
     result = run_brusselator_conditioning_study(config)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(result, indent=2) + "\n")
+    _atomic_write_json(output, result)
     print(json.dumps(result, indent=2))
     print(f"Results saved to {output}")
 
