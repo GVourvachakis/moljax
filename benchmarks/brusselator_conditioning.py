@@ -4,14 +4,18 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
+import subprocess
 from pathlib import Path
 from statistics import median
+from tempfile import NamedTemporaryFile
 from typing import Any, NamedTuple
 
 import jax
-
-jax.config.update("jax_enable_x64", True)
+import jax.numpy as jnp
+import numpy as np
 
 from moljax.core.grid import Grid2D
 from moljax.core.newton_krylov import NKParams
@@ -23,7 +27,14 @@ from moljax.experimental.brusselator_conditioning import (
     build_brusselator_system,
     measure_brusselator_gmres,
     sampled_visited_states,
+    state_developedness,
 )
+
+jax.config.update("jax_enable_x64", True)
+
+
+SOURCE_STATE_ARTIFACT_SCHEMA = "brusselator_conditioning_source_state_v4"
+SOURCE_STATE_MODEL_VERSION = "brusselator_periodic_fft_be_v1"
 
 
 class BrusselatorConditioningConfig(NamedTuple):
@@ -37,7 +48,10 @@ class BrusselatorConditioningConfig(NamedTuple):
     seed: int
     n_angles: int
     fov_max_iters: int
+    fov_residual_tolerance: float
+    fov_n_restarts: int
     arnoldi_steps: int
+    compute_lobpcg_upper_estimate: bool
     max_newton_iters: int
     max_krylov_iters: int
     newton_tol: float
@@ -47,6 +61,7 @@ class BrusselatorConditioningConfig(NamedTuple):
     turing_sample_steps: tuple[int, ...] = ()
     regimes: tuple[str, ...] = ("hopf", "turing")
     output_path: str = "benchmarks/results/brusselator_conditioning.json"
+    source_state_cache_dir: str | None = None
 
 
 def _config(mode: str, **kwargs: Any) -> BrusselatorConditioningConfig:
@@ -59,7 +74,10 @@ def _config(mode: str, **kwargs: Any) -> BrusselatorConditioningConfig:
         seed=20260821,
         n_angles=4,
         fov_max_iters=8,
+        fov_residual_tolerance=1.0e-3,
+        fov_n_restarts=2,
         arnoldi_steps=6,
+        compute_lobpcg_upper_estimate=True,
         max_newton_iters=10,
         max_krylov_iters=80,
         newton_tol=1.0e-8,
@@ -114,6 +132,184 @@ PRESETS = {
 }
 
 
+def _git_revision(*args: str) -> str | None:
+    """Return an optional local Git revision without requiring a remote."""
+    repository = Path(__file__).resolve().parent.parent
+    try:
+        result = subprocess.run(
+            ("git", *args),
+            cwd=repository,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return result.stdout.strip() or None
+
+
+def _provenance_revisions() -> dict[str, str]:
+    """Capture portable Git provenance without making a study depend on remotes."""
+    repository_head = _git_revision("rev-parse", "HEAD")
+    base_revision = _git_revision("merge-base", "HEAD", "upstream/main")
+    if base_revision is not None:
+        return {
+            "repository_head": repository_head or "unavailable",
+            "base_revision": base_revision,
+            "base_revision_source": "merge-base-upstream",
+        }
+    tag_revision = _git_revision("describe", "--tags", "--abbrev=0")
+    if tag_revision is not None:
+        return {
+            "repository_head": repository_head or "unavailable",
+            "base_revision": tag_revision,
+            "base_revision_source": "describe-tags",
+        }
+    if repository_head is not None:
+        return {
+            "repository_head": repository_head,
+            "base_revision": repository_head,
+            "base_revision_source": "head-fallback",
+        }
+    return {
+        "repository_head": "unavailable",
+        "base_revision": "unavailable",
+        "base_revision_source": "unavailable",
+    }
+
+
+def _source_state_identity(state: dict[str, jax.Array]) -> dict[str, Any]:
+    """Return a SHA256 identity for a two-field persisted source state."""
+    digest = hashlib.sha256()
+    fields: dict[str, dict[str, Any]] = {}
+    for field in ("u", "v"):
+        values = np.asarray(jax.device_get(state[field]), dtype=np.float64)
+        digest.update(field.encode("utf-8"))
+        digest.update(values.dtype.str.encode("utf-8"))
+        digest.update(values.tobytes(order="C"))
+        fields[field] = {"shape": list(values.shape), "dtype": values.dtype.str}
+    return {"sha256": digest.hexdigest(), "fields": fields}
+
+
+def _source_state_fingerprint(
+    config: BrusselatorConditioningConfig,
+    regime: Any,
+    sample_steps: tuple[int, ...],
+    seed: int,
+) -> dict[str, Any]:
+    """Return the v4 generation contract required to reuse a source trajectory."""
+    return {
+        "schema": SOURCE_STATE_ARTIFACT_SCHEMA,
+        "regime": regime._asdict(),
+        "grid": {"nx": config.nx, "ny": config.ny, "n_ghost": 1},
+        "domain": {"x": [0.0, regime.domain_length], "y": [0.0, regime.domain_length]},
+        "state_dt": config.dt,
+        "seed": seed,
+        "perturbation": config.perturbation,
+        "sample_steps": list(sample_steps),
+        "solver": {
+            "max_newton_iters": config.max_newton_iters,
+            "max_krylov_iters": config.max_krylov_iters,
+            "newton_tol": config.newton_tol,
+            "krylov_tol": config.krylov_tol,
+            "max_backtrack": "NKParams-default-8",
+        },
+        "model_version": SOURCE_STATE_MODEL_VERSION,
+    }
+
+
+def _cache_directory(config: BrusselatorConditioningConfig) -> Path:
+    """Return the source-state artifact directory for this explicit run."""
+    if config.source_state_cache_dir is not None:
+        return Path(config.source_state_cache_dir)
+    return Path(config.output_path).parent / "brusselator_source_states"
+
+
+def _cache_paths(
+    config: BrusselatorConditioningConfig, regime: Any
+) -> tuple[Path, Path]:
+    root = _cache_directory(config)
+    return root / f"{regime.name}.npz", root / f"{regime.name}.json"
+
+
+def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, delete=False) as handle:
+        json.dump(payload, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+        temporary = Path(handle.name)
+    os.replace(temporary, path)
+
+
+def _atomic_save_states(path: Path, states: list[dict[str, jax.Array]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        f"{field}_{index}": np.asarray(jax.device_get(state[field]), dtype=np.float64)
+        for index, state in enumerate(states)
+        for field in ("u", "v")
+    }
+    with NamedTemporaryFile("wb", suffix=".npz", dir=path.parent, delete=False) as handle:
+        np.savez_compressed(handle, **payload)
+        temporary = Path(handle.name)
+    os.replace(temporary, path)
+
+
+def _load_cached_states(
+    config: BrusselatorConditioningConfig,
+    regime: Any,
+    fingerprint: dict[str, Any],
+) -> tuple[list[dict[str, jax.Array]], list[dict[str, Any]]] | None:
+    """Load a v4 source trajectory only when its contract and hashes match."""
+    array_path, manifest_path = _cache_paths(config, regime)
+    if not array_path.is_file() or not manifest_path.is_file():
+        return None
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("schema") != SOURCE_STATE_ARTIFACT_SCHEMA:
+        raise RuntimeError(f"stale source artifact schema: {manifest_path}")
+    if manifest.get("generation_fingerprint") != fingerprint:
+        raise RuntimeError(f"source-state fingerprint mismatch: {manifest_path}")
+    identities = manifest.get("source_state_identities")
+    if not isinstance(identities, list):
+        raise RuntimeError(f"source artifact lacks identities: {manifest_path}")
+    with np.load(array_path, allow_pickle=False) as arrays:
+        states = [
+            {
+                "u": jax.block_until_ready(jnp.asarray(arrays[f"u_{index}"], dtype=jnp.float64)),
+                "v": jax.block_until_ready(jnp.asarray(arrays[f"v_{index}"], dtype=jnp.float64)),
+            }
+            for index in range(len(identities))
+        ]
+    observed = [_source_state_identity(state) for state in states]
+    if observed != identities:
+        raise RuntimeError(f"source-state SHA256 mismatch: {array_path}")
+    return states, identities
+
+
+def _persist_source_states(
+    config: BrusselatorConditioningConfig,
+    regime: Any,
+    fingerprint: dict[str, Any],
+    states: list[dict[str, jax.Array]],
+) -> tuple[list[dict[str, jax.Array]], list[dict[str, Any]]]:
+    """Persist, hash, and reload a successful source trajectory exactly once."""
+    array_path, manifest_path = _cache_paths(config, regime)
+    identities = [_source_state_identity(state) for state in states]
+    _atomic_save_states(array_path, states)
+    _atomic_write_json(
+        manifest_path,
+        {
+            "schema": SOURCE_STATE_ARTIFACT_SCHEMA,
+            "generation_fingerprint": fingerprint,
+            "array_path": array_path.name,
+            "source_state_identities": identities,
+        },
+    )
+    loaded = _load_cached_states(config, regime, fingerprint)
+    if loaded is None:
+        raise RuntimeError(f"failed to reload persisted source states: {array_path}")
+    return loaded
+
+
 def _nk(config: BrusselatorConditioningConfig) -> NKParams:
     return NKParams(
         max_newton_iters=config.max_newton_iters,
@@ -133,33 +329,73 @@ def _records(config: BrusselatorConditioningConfig) -> list[dict[str, Any]]:
     for regime_index, regime in enumerate(regimes):
         grid = Grid2D.uniform(config.nx, config.ny, 0.0, 5.0, 0.0, 5.0, n_ghost=1)
         model, fft_cache, diffusivities = build_brusselator_system(regime, grid)
+        source_seed = config.seed + regime_index
         if config.mode == "screen_64":
-            states = _integrate_visited_states(
-                regime,
-                model,
-                fft_cache,
-                n_steps=config.n_states,
-                dt=config.dt,
-                perturbation=config.perturbation,
-                seed=config.seed + regime_index,
-                nk_params=_nk(config),
-            )
-            samples = [(i, (i + 1) * config.dt, state, None) for i, state in enumerate(states)]
+            sample_steps = tuple(range(1, config.n_states + 1))
         else:
-            steps = (
+            sample_steps = (
                 config.hopf_sample_steps if regime.name == "hopf" else config.turing_sample_steps
             )
-            visited = sampled_visited_states(
-                regime,
-                grid=grid,
-                sample_steps=steps,
-                dt=config.dt,
-                perturbation=config.perturbation,
-                seed=config.seed + regime_index,
-                nk_params=_nk(config),
-            )
-            samples = [(s.step, s.time, s.state, s.developedness) for s in visited]
-        for index, time_value, state, developedness in samples:
+        fingerprint = _source_state_fingerprint(config, regime, sample_steps, source_seed)
+        cached = _load_cached_states(config, regime, fingerprint)
+        if cached is None:
+            if config.mode == "screen_64":
+                generated = _integrate_visited_states(
+                    regime,
+                    model,
+                    fft_cache,
+                    n_steps=config.n_states,
+                    dt=config.dt,
+                    perturbation=config.perturbation,
+                    seed=source_seed,
+                    nk_params=_nk(config),
+                )
+                source_states, identities = _persist_source_states(
+                    config, regime, fingerprint, generated
+                )
+                samples = [
+                    (index, (index + 1) * config.dt, state, None)
+                    for index, state in enumerate(source_states)
+                ]
+            else:
+                visited = sampled_visited_states(
+                    regime,
+                    grid=grid,
+                    sample_steps=sample_steps,
+                    dt=config.dt,
+                    perturbation=config.perturbation,
+                    seed=source_seed,
+                    nk_params=_nk(config),
+                )
+                source_states, identities = _persist_source_states(
+                    config, regime, fingerprint, [sample.state for sample in visited]
+                )
+                samples = [
+                    (sample.step, sample.time, state, state_developedness(state, grid, regime))
+                    for sample, state in zip(visited, source_states, strict=True)
+                ]
+        else:
+            source_states, identities = cached
+            if config.mode == "screen_64":
+                samples = [
+                    (index, (index + 1) * config.dt, state, None)
+                    for index, state in enumerate(source_states)
+                ]
+            else:
+                samples = [
+                    (step, step * config.dt, state, state_developedness(state, grid, regime))
+                    for step, state in zip(sample_steps, source_states, strict=True)
+                ]
+        array_path, _ = _cache_paths(config, regime)
+        for sample_position, (index, time_value, state, developedness) in enumerate(samples):
+            source_artifact = {
+                "schema": SOURCE_STATE_ARTIFACT_SCHEMA,
+                "relative_path": str(array_path),
+                "sample_position": sample_position,
+                "source_state_identity": identities[sample_position],
+                "generation_fingerprint": fingerprint,
+                "converged": True,
+            }
             for kind in ("identity", "fft_diffusion"):
                 assessment = assess_brusselator_state(
                     state,
@@ -172,7 +408,10 @@ def _records(config: BrusselatorConditioningConfig) -> list[dict[str, Any]]:
                     time_value=time_value,
                     n_angles=config.n_angles,
                     fov_max_iters=config.fov_max_iters,
+                    fov_residual_tolerance=config.fov_residual_tolerance,
+                    fov_n_restarts=config.fov_n_restarts,
                     arnoldi_steps=config.arnoldi_steps,
+                    compute_lobpcg_upper_estimate=config.compute_lobpcg_upper_estimate,
                     seed=config.seed + 100 * regime_index + 10 * index,
                 )
                 gmres = None
@@ -189,7 +428,28 @@ def _records(config: BrusselatorConditioningConfig) -> list[dict[str, Any]]:
                         time_value=time_value,
                         preconditioner_kind=kind,
                     )
-                row = {**assessment, "time": float(time_value), "actual_gmres": gmres}
+                row = {
+                    **assessment,
+                    "time": float(time_value),
+                    "actual_gmres": gmres,
+                    "source_state_artifact": source_artifact,
+                    "record_config": {
+                        "regime": regime._asdict(),
+                        "grid": {"nx": config.nx, "ny": config.ny, "n_ghost": 1},
+                        "domain_length": regime.domain_length,
+                        "analysis_dt": config.dt,
+                        "preconditioner_kind": kind,
+                        "n_angles": config.n_angles,
+                        "fov_max_iters": config.fov_max_iters,
+                        "fov_residual_tolerance": config.fov_residual_tolerance,
+                        "fov_n_restarts": config.fov_n_restarts,
+                        "arnoldi_steps": config.arnoldi_steps,
+                        "compute_lobpcg_upper_estimate": config.compute_lobpcg_upper_estimate,
+                        "assessment_seed": config.seed + 100 * regime_index + 10 * index,
+                        "source_state_fingerprint": fingerprint,
+                    },
+                    **_provenance_revisions(),
+                }
                 if config.mode == "screen_64":
                     row["state_index"] = index
                 else:
@@ -366,6 +626,7 @@ def _result(config: BrusselatorConditioningConfig, records: list[dict[str, Any]]
         "diagnostic_preconditioners": ["identity", "fft_diffusion"],
         "exact_solution_error": "not applicable: conditioning study",
     }
+    provenance = _provenance_revisions()
     if config.mode == "screen_64":
         return {
             "schema_version": "brusselator_conditioning_v1",
@@ -376,6 +637,7 @@ def _result(config: BrusselatorConditioningConfig, records: list[dict[str, Any]]
                 if k not in {"hopf_sample_steps", "turing_sample_steps"}
             },
             "model": model,
+            "provenance": provenance,
             "records": records,
             "regime_comparison": comparison,
             "hopf_vs_turing": {
@@ -393,6 +655,7 @@ def _result(config: BrusselatorConditioningConfig, records: list[dict[str, Any]]
             "status": "completed",
             "config": config_json,
             "model": model,
+            "provenance": provenance,
             "records": records,
             "regime_comparison": comparison,
             "hopf_vs_turing": {
@@ -423,6 +686,7 @@ def _result(config: BrusselatorConditioningConfig, records: list[dict[str, Any]]
             "status": "completed",
             "config": config_json,
             "model": model,
+            "provenance": provenance,
             "records": records,
             "fixed_dt_transition": _fixed_transition(records, config),
             "scope": {
@@ -437,6 +701,7 @@ def _result(config: BrusselatorConditioningConfig, records: list[dict[str, Any]]
         "status": "completed",
         "config": config_json,
         "model": model,
+        "provenance": provenance,
         "records": records,
         "fixed_dt_transition": _fixed_transition(records, config),
         "scope": {
@@ -452,6 +717,98 @@ def _result(config: BrusselatorConditioningConfig, records: list[dict[str, Any]]
 def run_brusselator_conditioning_study(config: BrusselatorConditioningConfig) -> dict[str, Any]:
     """Run one preset and return its JSON-ready result."""
     return _result(config, _records(config))
+
+
+def reassess_brusselator_record(
+    record: dict[str, Any],
+    *,
+    source_state_cache_dir: str,
+) -> dict[str, Any]:
+    """Reassess one record from its complete stored configuration, fail closed.
+
+    This recovery path deliberately never consults a benchmark preset or a
+    default.  It reconstructs the grid, regime, diagnostic budget, and
+    preconditioner from the serialized record, then reloads the exact v4
+    source artifact after checking its fingerprint and SHA256 identity.
+    """
+    try:
+        stored = record["record_config"]
+        artifact = record["source_state_artifact"]
+        regime = type(HOPF_REGIME)(**stored["regime"])
+        grid_values = stored["grid"]
+        fingerprint = stored["source_state_fingerprint"]
+        position = int(artifact["sample_position"])
+    except (KeyError, TypeError, ValueError) as error:
+        raise RuntimeError("record lacks complete reassessment provenance") from error
+    if artifact.get("schema") != SOURCE_STATE_ARTIFACT_SCHEMA:
+        raise RuntimeError("record uses an incompatible source-state artifact schema")
+    if artifact.get("generation_fingerprint") != fingerprint:
+        raise RuntimeError("record source-state fingerprint is internally inconsistent")
+    if stored["analysis_dt"] <= 0.0 or stored["preconditioner_kind"] not in {
+        "identity",
+        "fft_diffusion",
+    }:
+        raise RuntimeError("record contains an invalid replay operator configuration")
+    replay = BrusselatorConditioningConfig(
+        mode="reassess",
+        nx=int(grid_values["nx"]),
+        ny=int(grid_values["ny"]),
+        dt=float(stored["analysis_dt"]),
+        perturbation=0.0,
+        seed=0,
+        n_angles=int(stored["n_angles"]),
+        fov_max_iters=int(stored["fov_max_iters"]),
+        fov_residual_tolerance=float(stored["fov_residual_tolerance"]),
+        fov_n_restarts=int(stored["fov_n_restarts"]),
+        arnoldi_steps=int(stored["arnoldi_steps"]),
+        compute_lobpcg_upper_estimate=bool(
+            stored["compute_lobpcg_upper_estimate"]
+        ),
+        max_newton_iters=0,
+        max_krylov_iters=0,
+        newton_tol=0.0,
+        krylov_tol=0.0,
+        source_state_cache_dir=source_state_cache_dir,
+    )
+    expected_path, _ = _cache_paths(replay, regime)
+    if Path(artifact["relative_path"]) != expected_path:
+        raise RuntimeError("record source-state artifact path does not match the replay cache")
+    loaded = _load_cached_states(replay, regime, fingerprint)
+    if loaded is None:
+        raise RuntimeError("record source-state artifact is missing")
+    states, identities = loaded
+    if position < 0 or position >= len(states) or identities[position] != artifact["source_state_identity"]:
+        raise RuntimeError("record source-state identity does not match the persisted artifact")
+    state = states[position]
+    if tuple(state["u"].shape) != (replay.ny + 2, replay.nx + 2):
+        raise RuntimeError("persisted state shape does not match the recorded grid")
+    grid = Grid2D.uniform(
+        replay.nx,
+        replay.ny,
+        0.0,
+        float(stored["domain_length"]),
+        0.0,
+        float(stored["domain_length"]),
+        n_ghost=int(grid_values["n_ghost"]),
+    )
+    model, fft_cache, diffusivities = build_brusselator_system(regime, grid)
+    return assess_brusselator_state(
+        state,
+        model,
+        fft_cache,
+        diffusivities,
+        replay.dt,
+        regime,
+        preconditioner_kind=str(stored["preconditioner_kind"]),
+        time_value=float(record["time"]),
+        n_angles=replay.n_angles,
+        fov_max_iters=replay.fov_max_iters,
+        fov_residual_tolerance=replay.fov_residual_tolerance,
+        fov_n_restarts=replay.fov_n_restarts,
+        arnoldi_steps=replay.arnoldi_steps,
+        compute_lobpcg_upper_estimate=replay.compute_lobpcg_upper_estimate,
+        seed=int(stored["assessment_seed"]),
+    )
 
 
 def main() -> None:

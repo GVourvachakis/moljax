@@ -9,14 +9,14 @@ same left-preconditioned Newton system.
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Mapping
 from typing import Any, NamedTuple
 
 import jax
-
-jax.config.update("jax_enable_x64", True)
-
 import jax.numpy as jnp
+import numpy as np
+from jax.experimental.sparse.linalg import lobpcg_standard
 from jax.flatten_util import ravel_pytree
 
 from moljax.conditioning import (
@@ -42,7 +42,13 @@ from moljax.core.preconditioners import (
 )
 from moljax.core.state import StateDict
 from moljax.core.stepping import be_step
+from moljax.experimental.brusselator_fourier_weyl_ghost_bound import (
+    FourierWeylGhostLowerBound,
+    fourier_weyl_ghost_lower_bound,
+)
 from moljax.experimental.pme_conditioning import _counted_gmres
+
+jax.config.update("jax_enable_x64", True)
 
 
 class BrusselatorRegime(NamedTuple):
@@ -99,6 +105,86 @@ class TrajectorySample(NamedTuple):
     time: float
     state: StateDict
     developedness: dict[str, float]
+
+
+def _state_identifier(state: StateDict, grid: Grid2D) -> dict[str, Any]:
+    """Return a SHA256 identity for the physical fields used by the bound."""
+    interior_y, interior_x = grid.interior_slice
+    digest = hashlib.sha256()
+    shapes: dict[str, list[int]] = {}
+    for field in ("u", "v"):
+        values = np.asarray(
+            jax.device_get(state[field][interior_y, interior_x]), dtype=np.float64
+        )
+        shapes[field] = list(values.shape)
+        digest.update(field.encode("utf-8"))
+        digest.update(values.dtype.str.encode("utf-8"))
+        digest.update(values.tobytes(order="C"))
+    return {"sha256": digest.hexdigest(), "interior_shapes": shapes, "dtype": "<f8"}
+
+
+def _fourier_weyl_bound(
+    state: StateDict,
+    model: MOLModel,
+    regime: BrusselatorRegime,
+    dt: float,
+) -> FourierWeylGhostLowerBound:
+    """Evaluate the closed-form padded-operator lower bound on one state."""
+    if not isinstance(model.grid, Grid2D):
+        raise TypeError("The Fourier--Weyl--ghost bound requires a two-dimensional grid")
+    interior_y, interior_x = model.grid.interior_slice
+    u = np.asarray(jax.device_get(state["u"][interior_y, interior_x]), dtype=np.float64)
+    v = np.asarray(jax.device_get(state["v"][interior_y, interior_x]), dtype=np.float64)
+    return fourier_weyl_ghost_lower_bound(
+        u,
+        v,
+        du=regime.du,
+        dv=regime.dv,
+        a=regime.a,
+        beta=regime.b,
+        dt=dt,
+        domain_length_x=regime.domain_length,
+        domain_length_y=regime.domain_length,
+    )
+
+
+def _lobpcg_sigma_min_upper_estimate(
+    operator: LinearizedOperator,
+    seed: int,
+    *,
+    max_iters: int = 12,
+) -> float | None:
+    """Return a non-certifying LOBPCG upper estimate for ``sigma_min(A)``.
+
+    The largest Ritz value of ``-A^*A`` is no larger than its true largest
+    eigenvalue.  Negating it therefore estimates ``sigma_min(A)`` from above.
+    It is deliberately serialized only as a diagnostic and is never supplied
+    to ``assess_preconditioner`` as lower-bound evidence.
+    """
+    if 2 * operator.n <= 15:
+        return None
+
+    def negative_realified_normal(value: jax.Array) -> jax.Array:
+        def apply_vector(column: jax.Array) -> jax.Array:
+            complex_column = column[: operator.n] + 1j * column[operator.n :]
+            normal_image = operator.matvec_adjoint(operator.matvec(complex_column))
+            return -jnp.concatenate((jnp.real(normal_image), jnp.imag(normal_image)))
+
+        if value.ndim == 1:
+            return apply_vector(value)
+        return jax.vmap(apply_vector, in_axes=1, out_axes=1)(value)
+
+    initial = jax.random.normal(
+        jax.random.PRNGKey(seed + 17), (2 * operator.n, 3), dtype=jnp.float64
+    )
+    try:
+        eigenvalues, _, _ = lobpcg_standard(
+            negative_realified_normal, initial, m=max_iters, tol=1.0e-5
+        )
+    except (RuntimeError, ValueError):
+        return None
+    estimate_squared = max(0.0, -float(eigenvalues[0]))
+    return float(np.sqrt(estimate_squared))
 
 
 def resolve_regime(regime: str | BrusselatorRegime) -> BrusselatorRegime:
@@ -401,7 +487,10 @@ def assess_brusselator_state(
     time_value: float = 0.0,
     n_angles: int = 4,
     fov_max_iters: int = 8,
+    fov_residual_tolerance: float = 1.0e-3,
+    fov_n_restarts: int = 2,
     arnoldi_steps: int = 6,
+    compute_lobpcg_upper_estimate: bool = False,
     seed: int = 20260821,
 ) -> dict[str, Any]:
     """Apply the generic diagnostics to one visited two-field Brusselator state.
@@ -436,27 +525,70 @@ def assess_brusselator_state(
             "verdict": "skipped",
             "disk_rate": None,
             "epsilon_zero": None,
+            "reduced_arnoldi_epsilon_zero": None,
+            "epsilon_zero_full_operator_evidence": False,
             "predicted_gmres_factor": None,
             "origin_enclosed": None,
             "n_right_real_outliers": None,
+            "supports_consistent": None,
+            "corroboration_attempted": None,
+            "verdict_reason": "adjoint identity gate failed",
             "fov_imaginary_extent": None,
+            "lobpcg_sigma_min_upper_estimate": None,
+            "fourier_weyl_ghost_lower_bound": None,
         }
+
+    if not isinstance(model.grid, Grid2D):
+        raise TypeError("The Brusselator conditioning study requires a two-dimensional grid")
 
     key_real, key_imag = jax.random.split(jax.random.PRNGKey(seed + 1))
     start = jax.random.normal(key_real, (operator.n,), dtype=jnp.float64)
     start = start + 1j * jax.random.normal(key_imag, (operator.n,), dtype=jnp.float64)
-    _, hessenberg = arnoldi(operator.matvec, start, min(arnoldi_steps, operator.n))
-    ritz = ritz_values(hessenberg)
-    epsilon_at_zero = epsilon_zero(hessenberg)
+    arnoldi_result = arnoldi(operator.matvec, start, min(arnoldi_steps, operator.n))
+    ritz = ritz_values(arnoldi_result.hessenberg)
+    reduced_epsilon_at_zero = epsilon_zero(arnoldi_result.hessenberg)
     field_of_values = numerical_range(
         operator.matvec,
         operator.matvec_adjoint,
         operator.n,
         n_angles=n_angles,
         max_iters=fov_max_iters,
+        residual_tolerance=fov_residual_tolerance,
+        n_restarts=fov_n_restarts,
     )
     rates = estimate_rates(field_of_values, ritz)
-    assessment = assess_preconditioner(field_of_values, ritz, epsilon_at_zero)
+    lower_bound = _fourier_weyl_bound(state, model, selected, dt)
+    selected_bound = lower_bound.selected
+    # A valid lower bound below the 0.1 adequacy gate cannot be allowed to
+    # turn a reduced-Arnoldi provisional reading into ``investigate``.  In
+    # that case retain the original, coverage-qualified assessment and record
+    # that the attempted certificate was insufficient.  A bound that clears
+    # the gate is full-operator evidence and unlocks adequate when every other
+    # fail-closed gate passes.
+    if selected_bound.full_lower_bound >= 0.1:
+        epsilon_for_assessment = selected_bound.full_lower_bound
+        assessment = assess_preconditioner(
+            field_of_values,
+            ritz,
+            epsilon_for_assessment,
+            coverage=arnoldi_result,
+            full_operator_lower_bound=True,
+        )
+        bound_status = "clears_adequacy_gate"
+    else:
+        epsilon_for_assessment = reduced_epsilon_at_zero
+        assessment = assess_preconditioner(
+            field_of_values,
+            ritz,
+            epsilon_for_assessment,
+            coverage=arnoldi_result,
+        )
+        bound_status = "valid_but_below_adequacy_gate"
+    lobpcg_upper_estimate = (
+        _lobpcg_sigma_min_upper_estimate(operator, seed)
+        if compute_lobpcg_upper_estimate
+        else None
+    )
     jax.block_until_ready(field_of_values.boundary)
 
     return {
@@ -465,11 +597,41 @@ def assess_brusselator_state(
         "verdict": assessment.verdict,
         "disk_rate": float(assessment.disk_rate),
         "epsilon_zero": float(assessment.epsilon_zero),
-        "predicted_gmres_factor": float(assessment.predicted_gmres_factor),
+        "reduced_arnoldi_epsilon_zero": float(reduced_epsilon_at_zero),
+        "epsilon_zero_full_operator_evidence": bool(
+            assessment.epsilon_zero_full_operator_evidence
+        ),
+        "predicted_gmres_factor": (
+            None
+            if assessment.predicted_gmres_factor is None
+            else float(assessment.predicted_gmres_factor)
+        ),
         "origin_enclosed": bool(field_of_values.origin_enclosed),
-        "n_right_real_outliers": int(assessment.n_right_real_outliers),
+        "n_right_real_outliers": (
+            None
+            if assessment.n_right_real_outliers is None
+            else int(assessment.n_right_real_outliers)
+        ),
+        "supports_consistent": bool(assessment.supports_consistent),
+        "corroboration_attempted": bool(assessment.corroboration_attempted),
+        "verdict_reason": assessment.verdict_reason,
         "fov_imaginary_extent": float(jnp.max(jnp.abs(jnp.imag(field_of_values.boundary)))),
         "rates": rates._asdict(),
+        "lobpcg_sigma_min_upper_estimate": lobpcg_upper_estimate,
+        "fourier_weyl_ghost_lower_bound": {
+            "evidence": "fourier_weyl_ghost_lower_bound",
+            "status": bound_status,
+            "selected_k0": selected_bound.name,
+            "k0_feature_center": list(selected_bound.center),
+            "b0": selected_bound.b0,
+            "perturbation_norm": selected_bound.perturbation_norm,
+            "interior_lower_bound": selected_bound.interior_lower_bound,
+            "c": selected_bound.ghost_norm_bound,
+            "full_lower_bound": selected_bound.full_lower_bound,
+            "padding": lower_bound.padding,
+            "floating_point_standard": lower_bound.floating_point_standard,
+            "state_identifier": _state_identifier(state, model.grid),
+        },
     }
 
 
