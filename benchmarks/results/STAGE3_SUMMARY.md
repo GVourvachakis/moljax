@@ -22,6 +22,10 @@ used as the scalable full-operator route: a constant-coefficient Fourier block b
 Weyl perturbation, and the padded ghost-cell `g(b,c)` correction. Each record stores selected K0,
 b0, perturbation norm, c, padding convention, and the final bound.
 
+The perturbation step uses the matrix spectral norm in the Weyl--Mirsky singular-value inequality
+(L. Mirsky, *Quart. J. Math.* 11 (1960), 50--59, doi:10.1093/qmath/11.1.50); the exact `g(b,c)`
+formula follows from the inverse of the block-triangular ghost structure.
+
 The bound was independently checked on small dense problems and never exceeded dense sigma-min.
 It uses the same float64 standard as the dense helper; a strictly rounded mathematical certificate
 would additionally require directed rounding or interval arithmetic. LOBPCG is an upper estimate,

@@ -9,6 +9,15 @@ the module exists solely for small-grid adversarial validation.
 The formulas are exact-arithmetic bounds.  Float64 evaluation follows the
 same standard as moljax's dense conditioning helper; it is not a
 directed-rounding interval enclosure.
+
+The interior perturbation uses the spectral norm in the Weyl--Mirsky
+inequality ``sigma_min(X + E) >= sigma_min(X) - ||E||_2``; see L. Mirsky,
+"Symmetric gauge functions and unitarily invariant norms," *Quart. J.
+Math.* 11 (1960), 50--59, doi:10.1093/qmath/11.1.50.  The ghost formula is
+documented at ``ghost_structure_lower_bound``.  For unitarily-invariant-norm
+background only (not as the source of either bound), see J.-C. Bourin,
+"Matrix subadditivity inequalities and block-matrices," arXiv:0805.1954,
+doi:10.48550/arXiv.0805.1954.
 """
 
 from __future__ import annotations
@@ -186,7 +195,17 @@ def _ghost_multiplicity(ny: int, nx: int) -> Array:
 
 
 def ghost_structure_lower_bound(interior_lower_bound: float, ghost_norm_bound: float) -> float:
-    """Return ``g(b,c)`` for ``[[B,0],[C,I]]`` with ``σmin(B)>=b`` and ``||C||<=c``."""
+    """Return ``g(b,c)`` for ``[[B,0],[C,I]]`` with ``σmin(B)>=b`` and ``||C||<=c``.
+
+    The exact formula follows directly from the inverse block form:
+    ``||A^-1||_2 <= ||[[1/b, 0], [c/b, 1]]||_2``.  The reciprocal of the
+    scalar matrix's largest singular value is the ``g(b,c)`` below.  For
+    related general singular-value inequalities for block-triangular
+    matrices, see C.-K. Li and R. Mathias, Theorem 1, equation (1),
+    *SIAM J. Matrix Anal. Appl.* 24 (2002), 126--131,
+    doi:10.1137/S0895479801398517.  That theorem is contextual rather than
+    the direct source of this closed form.
+    """
     b = float(interior_lower_bound)
     c = float(ghost_norm_bound)
     if b <= 0.0:
@@ -218,9 +237,12 @@ def _candidate_bound(
         preconditioner = np.diag((1.0 - dt * du * ell, 1.0 - dt * dv * ell))
         constant_jacobian = np.eye(2) - dt * (np.diag((du, dv)) * ell + k0)
         b0 = min(b0, _stable_sigma_min_2x2(np.linalg.solve(preconditioner, constant_jacobian)))
+    # K(x)-K0 = [1, -1]^T [delta_s, delta_t], so sqrt(2)*the Euclidean
+    # feature distance is exactly its matrix spectral norm (not its radius).
     feature_distance = np.linalg.norm(_features(u, v) - np.asarray(center), axis=1)
     perturbation = float(np.sqrt(2.0) * np.max(feature_distance))
     interior = max(0.0, float(b0 - dt * perturbation))
+    # Leading singular values are the pointwise spectral norms required for c.
     jacobian_norms = np.linalg.svd(brusselator_jacobian(u, v, beta), compute_uv=False)[..., 0]
     multiplicity = _ghost_multiplicity(ny, nx)
     ghost = float(dt * np.max(np.sqrt(multiplicity) * jacobian_norms))
