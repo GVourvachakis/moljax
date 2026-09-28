@@ -63,7 +63,9 @@ provisional because its bound is 0.0), while FFT diffusion encloses the origin (
 under the two preconditioners.
 
 At dt=1 on the developed-64 exploration, all corroborated Hopf and Turing records enclose the
-origin. At 256 by 256, developed Hopf samples remain origin-outside for both preconditioners at
+origin; the developed-64 Turing step-120 identity record is excluded because its support geometry
+did not corroborate at the cap, so its origin status is unresolved rather than a counterexample.
+At 256 by 256, developed Hopf samples remain origin-outside for both preconditioners at
 dt=0.2 and dt=0.05; FFT is adequate while identity is investigate. These configurations change
 the trajectories as well as dt, so this is a timestep-dependent empirical pattern, not an isolated
 causal claim about dt.
