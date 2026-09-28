@@ -584,6 +584,21 @@ def assess_brusselator_state(
             coverage=arnoldi_result,
         )
         bound_status = "valid_but_below_adequacy_gate"
+    verdict = assessment.verdict
+    verdict_reason = assessment.verdict_reason
+    if (
+        bound_status == "valid_but_below_adequacy_gate"
+        and assessment.supports_consistent
+        and not field_of_values.origin_enclosed
+    ):
+        # A valid full-operator lower bound below the adequacy threshold is
+        # evidence of neither adequacy nor inadequacy.  In particular, a
+        # zero-valued valid bound must not fall through to the disk-rate
+        # ``investigate`` outcome of the reduced-Arnoldi assessment.  The
+        # origin-enclosure and support-consistency gates above retain their
+        # normal fail-closed precedence.
+        verdict = "provisional"
+        verdict_reason = "certification not established by the methods attempted"
     lobpcg_upper_estimate = (
         _lobpcg_sigma_min_upper_estimate(operator, seed)
         if compute_lobpcg_upper_estimate
@@ -594,7 +609,7 @@ def assess_brusselator_state(
     return {
         **common,
         "status": "completed",
-        "verdict": assessment.verdict,
+        "verdict": verdict,
         "disk_rate": float(assessment.disk_rate),
         "epsilon_zero": float(assessment.epsilon_zero),
         "reduced_arnoldi_epsilon_zero": float(reduced_epsilon_at_zero),
@@ -613,8 +628,10 @@ def assess_brusselator_state(
             else int(assessment.n_right_real_outliers)
         ),
         "supports_consistent": bool(assessment.supports_consistent),
+        "supports_converged": bool(field_of_values.supports_converged),
+        "supports_corroborated": bool(field_of_values.supports_corroborated),
         "corroboration_attempted": bool(assessment.corroboration_attempted),
-        "verdict_reason": assessment.verdict_reason,
+        "verdict_reason": verdict_reason,
         "fov_imaginary_extent": float(jnp.max(jnp.abs(jnp.imag(field_of_values.boundary)))),
         "rates": rates._asdict(),
         "lobpcg_sigma_min_upper_estimate": lobpcg_upper_estimate,

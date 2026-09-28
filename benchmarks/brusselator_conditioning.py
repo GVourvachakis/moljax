@@ -815,13 +815,18 @@ def reassess_brusselator_record(
     record: dict[str, Any],
     *,
     source_state_cache_dir: str,
+    n_angles: int | None = None,
+    fov_max_iters: int | None = None,
+    fov_n_restarts: int | None = None,
 ) -> dict[str, Any]:
     """Reassess one record from its complete stored configuration, fail closed.
 
     This recovery path deliberately never consults a benchmark preset or a
-    default.  It reconstructs the grid, regime, diagnostic budget, and
-    preconditioner from the serialized record, then reloads the exact v4
-    source artifact after checking its fingerprint and SHA256 identity.
+    default.  It reconstructs the grid, regime, and preconditioner from the
+    serialized record, then reloads the exact v4 source artifact after
+    checking its fingerprint and SHA256 identity.  Optional FOV controls are
+    an explicit diagnostic-resolution override only; they never affect the
+    persisted state-generation contract.
     """
     try:
         stored = record["record_config"]
@@ -841,6 +846,15 @@ def reassess_brusselator_record(
         "fft_diffusion",
     }:
         raise RuntimeError("record contains an invalid replay operator configuration")
+    resolved_n_angles = int(stored["n_angles"] if n_angles is None else n_angles)
+    resolved_fov_max_iters = int(
+        stored["fov_max_iters"] if fov_max_iters is None else fov_max_iters
+    )
+    resolved_fov_n_restarts = int(
+        stored["fov_n_restarts"] if fov_n_restarts is None else fov_n_restarts
+    )
+    if resolved_n_angles < 3 or resolved_fov_max_iters < 1 or resolved_fov_n_restarts < 1:
+        raise ValueError("FOV reassessment controls must be positive and use at least 3 angles")
     replay = BrusselatorConditioningConfig(
         mode="reassess",
         nx=int(grid_values["nx"]),
@@ -848,10 +862,10 @@ def reassess_brusselator_record(
         dt=float(stored["analysis_dt"]),
         perturbation=0.0,
         seed=0,
-        n_angles=int(stored["n_angles"]),
-        fov_max_iters=int(stored["fov_max_iters"]),
+        n_angles=resolved_n_angles,
+        fov_max_iters=resolved_fov_max_iters,
         fov_residual_tolerance=float(stored["fov_residual_tolerance"]),
-        fov_n_restarts=int(stored["fov_n_restarts"]),
+        fov_n_restarts=resolved_fov_n_restarts,
         arnoldi_steps=int(stored["arnoldi_steps"]),
         compute_lobpcg_upper_estimate=bool(
             stored["compute_lobpcg_upper_estimate"]

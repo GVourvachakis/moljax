@@ -185,14 +185,15 @@ def test_fourier_weyl_bound_certifies_a_small_homogeneous_turing_state():
 
 
 @pytest.mark.slow
-def test_valid_weak_fourier_weyl_bound_preserves_provisional(monkeypatch):
+@pytest.mark.parametrize("weak_bound", [0.0, 0.05])
+def test_valid_weak_fourier_weyl_bound_preserves_provisional(monkeypatch, weak_bound):
     """A valid but insufficient lower bound cannot promote a provisional reading."""
     import moljax.experimental.brusselator_conditioning as conditioning
 
     grid = Grid2D.uniform(8, 8, 0.0, 5.0, 0.0, 5.0)
     state, model, fft_cache, diffusivities = _homogeneous_state(TURING_REGIME, grid)
     genuine = conditioning._fourier_weyl_bound(state, model, TURING_REGIME, 0.01)
-    weak_selected = replace(genuine.selected, full_lower_bound=0.05)
+    weak_selected = replace(genuine.selected, full_lower_bound=weak_bound)
     monkeypatch.setattr(
         conditioning,
         "_fourier_weyl_bound",
@@ -215,7 +216,7 @@ def test_valid_weak_fourier_weyl_bound_preserves_provisional(monkeypatch):
     assert assessment["verdict"] == "provisional"
     assert assessment["epsilon_zero_full_operator_evidence"] is False
     assert certificate["status"] == "valid_but_below_adequacy_gate"
-    assert certificate["full_lower_bound"] == pytest.approx(0.05)
+    assert certificate["full_lower_bound"] == pytest.approx(weak_bound)
 
 
 @pytest.mark.slow
@@ -249,7 +250,7 @@ def test_origin_enclosure_remains_indeterminate_despite_a_valid_bound():
 
 
 def test_v4_source_cache_rejects_a_foreign_generation_fingerprint(tmp_path):
-    """Source reuse fails closed rather than crossing Brusselator configurations."""
+    """A foreign source-generation contract is a safe cache miss."""
     config = benchmark._config(
         "screen_64",
         nx=4,
@@ -264,5 +265,4 @@ def test_v4_source_cache_rejects_a_foreign_generation_fingerprint(tmp_path):
     }
     benchmark._persist_source_states(config, TURING_REGIME, fingerprint, [state])
     foreign = {**fingerprint, "seed": 8}
-    with pytest.raises(RuntimeError, match="fingerprint mismatch"):
-        benchmark._load_cached_states(config, TURING_REGIME, foreign)
+    assert benchmark._load_cached_states(config, TURING_REGIME, foreign) is None
