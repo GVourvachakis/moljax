@@ -71,15 +71,15 @@
     "both_regimes_indeterminate": true,
     "hopf_fov_imaginary_extent_by_time": [
       {
-        "fov_imaginary_extent": 3.8688641953316694,
+        "fov_imaginary_extent": 3.8731383854560058,
         "time": 1.0
       },
       {
-        "fov_imaginary_extent": 4.316583017464444,
+        "fov_imaginary_extent": 4.410777209956099,
         "time": 10.0
       },
       {
-        "fov_imaginary_extent": 4.695244567666526,
+        "fov_imaginary_extent": 4.8080482794863695,
         "time": 20.0
       }
     ],
@@ -319,6 +319,7 @@
         },
         "final_category": "indeterminate",
         "final_verdict": "indeterminate",
+        "final_verdict_reason": null,
         "source": "fov_support_escalation",
         "status": "RESOLVED"
       },
@@ -454,7 +455,7 @@
           },
           "state_dt": 1.0
         },
-        "relative_path": "/tmp/moljax-brusselator-stage2-d4047f3-v4-r1/source_states/hopf-189229f1eaae9326.npz",
+        "relative_path": "hopf-189229f1eaae9326.npz",
         "sample_position": 0,
         "schema": "brusselator_conditioning_source_state_v4",
         "source_state_identity": {
@@ -692,6 +693,7 @@
         },
         "final_category": "indeterminate",
         "final_verdict": "indeterminate",
+        "final_verdict_reason": null,
         "source": "fov_support_escalation",
         "status": "RESOLVED"
       },
@@ -827,7 +829,7 @@
           },
           "state_dt": 1.0
         },
-        "relative_path": "/tmp/moljax-brusselator-stage2-d4047f3-v4-r1/source_states/hopf-189229f1eaae9326.npz",
+        "relative_path": "hopf-189229f1eaae9326.npz",
         "sample_position": 0,
         "schema": "brusselator_conditioning_source_state_v4",
         "source_state_identity": {
@@ -1065,6 +1067,7 @@
         },
         "final_category": "indeterminate",
         "final_verdict": "indeterminate",
+        "final_verdict_reason": null,
         "source": "fov_support_escalation",
         "status": "RESOLVED"
       },
@@ -1200,7 +1203,7 @@
           },
           "state_dt": 1.0
         },
-        "relative_path": "/tmp/moljax-brusselator-stage2-d4047f3-v4-r1/source_states/hopf-189229f1eaae9326.npz",
+        "relative_path": "hopf-189229f1eaae9326.npz",
         "sample_position": 1,
         "schema": "brusselator_conditioning_source_state_v4",
         "source_state_identity": {
@@ -1438,6 +1441,7 @@
         },
         "final_category": "indeterminate",
         "final_verdict": "indeterminate",
+        "final_verdict_reason": null,
         "source": "fov_support_escalation",
         "status": "RESOLVED"
       },
@@ -1573,7 +1577,7 @@
           },
           "state_dt": 1.0
         },
-        "relative_path": "/tmp/moljax-brusselator-stage2-d4047f3-v4-r1/source_states/hopf-189229f1eaae9326.npz",
+        "relative_path": "hopf-189229f1eaae9326.npz",
         "sample_position": 1,
         "schema": "brusselator_conditioning_source_state_v4",
         "source_state_identity": {
@@ -1811,6 +1815,7 @@
         },
         "final_category": "indeterminate",
         "final_verdict": "indeterminate",
+        "final_verdict_reason": null,
         "source": "fov_support_escalation",
         "status": "RESOLVED"
       },
@@ -1946,7 +1951,7 @@
           },
           "state_dt": 1.0
         },
-        "relative_path": "/tmp/moljax-brusselator-stage2-d4047f3-v4-r1/source_states/hopf-189229f1eaae9326.npz",
+        "relative_path": "hopf-189229f1eaae9326.npz",
         "sample_position": 2,
         "schema": "brusselator_conditioning_source_state_v4",
         "source_state_identity": {
@@ -2184,6 +2189,7 @@
         },
         "final_category": "indeterminate",
         "final_verdict": "indeterminate",
+        "final_verdict_reason": null,
         "source": "fov_support_escalation",
         "status": "RESOLVED"
       },
@@ -2319,7 +2325,7 @@
           },
           "state_dt": 1.0
         },
-        "relative_path": "/tmp/moljax-brusselator-stage2-d4047f3-v4-r1/source_states/hopf-189229f1eaae9326.npz",
+        "relative_path": "hopf-189229f1eaae9326.npz",
         "sample_position": 2,
         "schema": "brusselator_conditioning_source_state_v4",
         "source_state_identity": {
@@ -2557,6 +2563,7 @@
         },
         "final_category": "indeterminate",
         "final_verdict": "indeterminate",
+        "final_verdict_reason": null,
         "source": "fov_support_escalation",
         "status": "RESOLVED"
       },
@@ -2692,7 +2699,7 @@
           },
           "state_dt": 1.0
         },
-        "relative_path": "/tmp/moljax-brusselator-stage2-d4047f3-v4-r1/source_states/turing-5adcb64342f0d404.npz",
+        "relative_path": "turing-5adcb64342f0d404.npz",
         "sample_position": 0,
         "schema": "brusselator_conditioning_source_state_v4",
         "source_state_identity": {
@@ -2930,6 +2937,7 @@
         },
         "final_category": "indeterminate",
         "final_verdict": "indeterminate",
+        "final_verdict_reason": null,
         "source": "fov_support_escalation",
         "status": "RESOLVED"
       },
@@ -3065,7 +3073,7 @@
           },
           "state_dt": 1.0
         },
-        "relative_path": "/tmp/moljax-brusselator-stage2-d4047f3-v4-r1/source_states/turing-5adcb64342f0d404.npz",
+        "relative_path": "turing-5adcb64342f0d404.npz",
         "sample_position": 0,
         "schema": "brusselator_conditioning_source_state_v4",
         "source_state_identity": {
@@ -3120,7 +3128,7 @@
       "epsilon_zero": 3.15097059682481,
       "epsilon_zero_full_operator_evidence": false,
       "final_category": "uncertified_at_cap",
-      "final_verdict": null,
+      "final_verdict": "uncertified_at_cap",
       "fourier_weyl_ghost_lower_bound": {
         "b0": 0.5510162262121782,
         "c": 3.737605008342853,
@@ -3448,7 +3456,8 @@
           "supports_corroborated": true
         },
         "final_category": "uncertified_at_cap",
-        "final_verdict": null,
+        "final_verdict": "uncertified_at_cap",
+        "final_verdict_reason": "support_not_converged",
         "source": "fov_support_escalation",
         "status": "UNCERTIFIED_AT_CAP",
         "uncertified_reason": "support_not_converged"
@@ -3585,7 +3594,7 @@
           },
           "state_dt": 1.0
         },
-        "relative_path": "/tmp/moljax-brusselator-stage2-d4047f3-v4-r1/source_states/turing-5adcb64342f0d404.npz",
+        "relative_path": "turing-5adcb64342f0d404.npz",
         "sample_position": 1,
         "schema": "brusselator_conditioning_source_state_v4",
         "source_state_identity": {
@@ -3614,8 +3623,8 @@
       "supports_corroborated": true,
       "time": 120.0,
       "trajectory_step": 120,
-      "verdict": "indeterminate",
-      "verdict_reason": null
+      "verdict": "uncertified_at_cap",
+      "verdict_reason": "support_not_converged"
     },
     {
       "actual_gmres": {
@@ -3823,6 +3832,7 @@
         },
         "final_category": "indeterminate",
         "final_verdict": "indeterminate",
+        "final_verdict_reason": null,
         "source": "fov_support_escalation",
         "status": "RESOLVED"
       },
@@ -3958,7 +3968,7 @@
           },
           "state_dt": 1.0
         },
-        "relative_path": "/tmp/moljax-brusselator-stage2-d4047f3-v4-r1/source_states/turing-5adcb64342f0d404.npz",
+        "relative_path": "turing-5adcb64342f0d404.npz",
         "sample_position": 1,
         "schema": "brusselator_conditioning_source_state_v4",
         "source_state_identity": {
@@ -4196,6 +4206,7 @@
         },
         "final_category": "indeterminate",
         "final_verdict": "indeterminate",
+        "final_verdict_reason": null,
         "source": "fov_support_escalation",
         "status": "RESOLVED"
       },
@@ -4331,7 +4342,7 @@
           },
           "state_dt": 1.0
         },
-        "relative_path": "/tmp/moljax-brusselator-stage2-d4047f3-v4-r1/source_states/turing-5adcb64342f0d404.npz",
+        "relative_path": "turing-5adcb64342f0d404.npz",
         "sample_position": 2,
         "schema": "brusselator_conditioning_source_state_v4",
         "source_state_identity": {
@@ -4569,6 +4580,7 @@
         },
         "final_category": "indeterminate",
         "final_verdict": "indeterminate",
+        "final_verdict_reason": null,
         "source": "fov_support_escalation",
         "status": "RESOLVED"
       },
@@ -4704,7 +4716,7 @@
           },
           "state_dt": 1.0
         },
-        "relative_path": "/tmp/moljax-brusselator-stage2-d4047f3-v4-r1/source_states/turing-5adcb64342f0d404.npz",
+        "relative_path": "turing-5adcb64342f0d404.npz",
         "sample_position": 2,
         "schema": "brusselator_conditioning_source_state_v4",
         "source_state_identity": {
@@ -4776,21 +4788,21 @@
       "fft_records": 3,
       "fov_imaginary_extent_by_time": [
         {
-          "fov_imaginary_extent": 3.8688641953316694,
+          "fov_imaginary_extent": 3.8731383854560058,
           "time": 1.0
         },
         {
-          "fov_imaginary_extent": 4.316583017464444,
+          "fov_imaginary_extent": 4.410777209956099,
           "time": 10.0
         },
         {
-          "fov_imaginary_extent": 4.695244567666526,
+          "fov_imaginary_extent": 4.8080482794863695,
           "time": 20.0
         }
       ],
       "median_actual_fft_gmres_iterations": 39.0,
-      "median_disk_rate": 9.748145967736509,
-      "median_fov_imaginary_extent": 4.316583017464444,
+      "median_disk_rate": 7.028184191977266,
+      "median_fov_imaginary_extent": 4.410777209956099,
       "origin_enclosed_fraction": 1.0,
       "parameters": {
         "a": 1.0,
@@ -4846,21 +4858,21 @@
       "fft_records": 3,
       "fov_imaginary_extent_by_time": [
         {
-          "fov_imaginary_extent": 2.069681729955262,
+          "fov_imaginary_extent": 2.074772083768136,
           "time": 80.0
         },
         {
-          "fov_imaginary_extent": 1.8666048063052103,
+          "fov_imaginary_extent": 1.8793038523878514,
           "time": 120.0
         },
         {
-          "fov_imaginary_extent": 7.109785776970554,
+          "fov_imaginary_extent": 7.118225889076039,
           "time": 200.0
         }
       ],
       "median_actual_fft_gmres_iterations": 20.0,
-      "median_disk_rate": 3.2184188350541705,
-      "median_fov_imaginary_extent": 2.069681729955262,
+      "median_disk_rate": 2.309943070833846,
+      "median_fov_imaginary_extent": 2.074772083768136,
       "origin_enclosed_fraction": 1.0,
       "parameters": {
         "a": 1.0,

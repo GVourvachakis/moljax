@@ -21,7 +21,15 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any
 
-from benchmarks.brusselator_conditioning import reassess_brusselator_record
+from benchmarks.brusselator_conditioning import (
+    HOPF_REGIME,
+    PRESETS,
+    TURING_REGIME,
+    _fixed_transition,
+    _records_for,
+    _summary,
+    reassess_brusselator_record,
+)
 
 STUDIES = (
     "screen_64",
@@ -141,23 +149,52 @@ def _cap_reason(attempt: dict[str, Any]) -> str:
     return "diagnostic_not_certifiable"
 
 
-def _policy_category(assessment: dict[str, Any]) -> str:
-    """Apply the bound-evidence precedence to one stored assessment.
+def _weak_bound_override_eligible(assessment: dict[str, Any]) -> bool:
+    """Return whether a weak certificate may refine an otherwise usable reading."""
+    return (
+        str(assessment.get("verdict")) in {"investigate", "provisional"}
+        and assessment.get("n_right_real_outliers") is not None
+    )
+
+
+def _policy_outcome(assessment: dict[str, Any]) -> tuple[str, str | None]:
+    """Apply bound-evidence precedence without erasing an invalid abstention.
 
     A weak but valid Fourier--Weyl--ghost certificate is distinct from no
     certificate: if geometry is corroborated and the origin is outside, it
-    remains provisional.  Origin enclosure and support failure retain their
-    fail-closed precedence in their respective paths.
+    remains provisional only when the underlying reading was a usable
+    investigate/provisional result.  Origin enclosure, support failure, and
+    invalid/incomplete diagnostics retain fail-closed precedence.
     """
     certificate = assessment.get("fourier_weyl_ghost_lower_bound")
     if (
         isinstance(certificate, dict)
         and certificate.get("status") == "valid_but_below_adequacy_gate"
+        and _weak_bound_override_eligible(assessment)
         and bool(assessment.get("supports_consistent"))
         and not bool(assessment.get("origin_enclosed"))
     ):
-        return "provisional"
-    return str(assessment["verdict"])
+        return "provisional", "certification not established by the methods attempted"
+    return str(assessment["verdict"]), assessment.get("verdict_reason")
+
+
+def _policy_category(assessment: dict[str, Any]) -> str:
+    """Return the final category for one stored, resolved assessment."""
+    return _policy_outcome(assessment)[0]
+
+
+def _normalise_resolution(resolution: dict[str, Any]) -> dict[str, Any]:
+    """Normalize one terminal resolution to its published policy fields."""
+    if resolution["status"] == "UNCERTIFIED_AT_CAP":
+        resolution["final_category"] = "uncertified_at_cap"
+        resolution["final_verdict"] = "uncertified_at_cap"
+        resolution["final_verdict_reason"] = resolution["uncertified_reason"]
+        return resolution
+    category, reason = _policy_outcome(resolution["final"]["assessment"])
+    resolution["final_category"] = category
+    resolution["final_verdict"] = category
+    resolution["final_verdict_reason"] = reason
+    return resolution
 
 
 def _resolve_record(
@@ -179,24 +216,19 @@ def _resolve_record(
         attempt = _attempt(assessment, budget)
         attempts.append(attempt)
         if attempt["supports_consistent"]:
-            category = _policy_category(assessment)
-            return {
+            return _normalise_resolution({
                 "status": "RESOLVED",
                 "source": "fov_support_escalation",
                 "attempts": attempts,
                 "final": attempt,
-                "final_category": category,
-                "final_verdict": category,
-            }
-    return {
+            })
+    return _normalise_resolution({
         "status": "UNCERTIFIED_AT_CAP",
         "source": "fov_support_escalation",
         "attempts": attempts,
         "final": attempts[-1],
-        "final_category": "uncertified_at_cap",
-        "final_verdict": None,
         "uncertified_reason": _cap_reason(attempts[-1]),
-    }
+    })
 
 
 def _resolve_one(checkpoint_dir: Path, study: str, key: str) -> None:
@@ -269,6 +301,128 @@ def _base_attempt(record: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _cache_relative_artifact(artifact: dict[str, Any], checkpoint_dir: Path) -> dict[str, Any]:
+    """Normalize one legacy artifact path to a safe cache-root-relative path."""
+    updated = deepcopy(artifact)
+    try:
+        recorded = Path(updated["relative_path"])
+    except (KeyError, TypeError) as error:
+        raise RuntimeError("record source-state artifact lacks a valid path") from error
+    cache_root = (checkpoint_dir / "source_states").resolve()
+    if recorded.is_absolute():
+        try:
+            recorded = recorded.resolve().relative_to(cache_root)
+        except ValueError as error:
+            raise RuntimeError("record source-state artifact is outside the cache root") from error
+    if not recorded.parts or ".." in recorded.parts:
+        raise RuntimeError("record source-state artifact path must be cache-root-relative")
+    updated["relative_path"] = str(recorded)
+    return updated
+
+
+def _hopf_vs_turing(
+    records: list[dict[str, Any]], study: str, *, scope_caveat: str | None = None
+) -> dict[str, Any]:
+    """Derive the mode-specific Hopf/Turing summary from final policy records."""
+    by_regime = {
+        regime: [
+            record
+            for record in records
+            if record["regime"] == regime and record["preconditioner"] == "fft_diffusion"
+        ]
+        for regime in ("hopf", "turing")
+    }
+    if study == "screen_64":
+        adequate = {
+            regime: sum(record["verdict"] == "adequate" for record in rows)
+            for regime, rows in by_regime.items()
+        }
+        both = all(adequate[regime] == len(rows) for regime, rows in by_regime.items())
+        return {
+            "outcome": "both_adequate_under_fft" if both else "fft_regime_assessments_mixed",
+            "statement": (
+                "The FFT diffusion preconditioner is assessed adequate for both visited-state "
+                "regimes."
+                if both
+                else "The FFT diffusion preconditioner has mixed final-policy outcomes across "
+                "the visited-state regimes."
+            ),
+            "hopf_adequate_fft_records": adequate["hopf"],
+            "turing_adequate_fft_records": adequate["turing"],
+        }
+    if study != "developed_64":
+        raise ValueError(f"Hopf/Turing comparison is not defined for {study}")
+    all_indeterminate = {
+        regime: bool(rows) and all(record["verdict"] == "indeterminate" for record in rows)
+        for regime, rows in by_regime.items()
+    }
+    both = all(all_indeterminate.values())
+    hopf_imaginary = sorted(by_regime["hopf"], key=lambda record: record["trajectory_step"])
+    summary = {
+        "outcome": (
+            "both_regimes_indeterminate_on_developed_states"
+            if both
+            else "developed_fft_regime_assessments_mixed"
+        ),
+        "statement": (
+            "Both evolved regimes are indeterminate at every sampled FFT-preconditioned state "
+            "because their numerical ranges enclose the origin; Hopf still has the larger, "
+            "growing imaginary extent."
+            if both
+            else "The developed FFT-preconditioned regimes have mixed final-policy outcomes; "
+            "see the per-regime summaries."
+        ),
+        "hopf_nonadequate_fft_records": sum(
+            record["verdict"] != "adequate" for record in by_regime["hopf"]
+        ),
+        "turing_nonadequate_fft_records": sum(
+            record["verdict"] != "adequate" for record in by_regime["turing"]
+        ),
+        "hopf_origin_enclosed_any": any(
+            bool(record["origin_enclosed"]) for record in by_regime["hopf"]
+        ),
+        "turing_origin_enclosed_any": any(
+            bool(record["origin_enclosed"]) for record in by_regime["turing"]
+        ),
+        "both_regimes_indeterminate": both,
+        "hopf_fov_imaginary_extent_grows_over_samples": (
+            hopf_imaginary[-1]["fov_imaginary_extent"]
+            > hopf_imaginary[0]["fov_imaginary_extent"]
+        ),
+        "hopf_fov_imaginary_extent_by_time": [
+            {"time": record["time"], "fov_imaginary_extent": record["fov_imaginary_extent"]}
+            for record in hopf_imaginary
+        ],
+    }
+    if scope_caveat is not None:
+        summary["scope_caveat"] = scope_caveat
+    return summary
+
+
+def _recompute_derived_summaries(
+    report: dict[str, Any], records: list[dict[str, Any]], study: str
+) -> None:
+    """Replace every record-derived base summary with one from final policy records."""
+    config = PRESETS[study]
+    if study in {"screen_64", "developed_64"}:
+        report["regime_comparison"] = {
+            regime.name: _summary(
+                _records_for(records, regime.name),
+                regime,
+                include_details=study != "screen_64",
+            )
+            for regime in (HOPF_REGIME, TURING_REGIME)
+        }
+        previous_comparison = report.get("hopf_vs_turing", {})
+        report["hopf_vs_turing"] = _hopf_vs_turing(
+            records,
+            study,
+            scope_caveat=previous_comparison.get("scope_caveat"),
+        )
+    else:
+        report["fixed_dt_transition"] = _fixed_transition(records, config)
+
+
 def _attach_resolution(
     checkpoint_dir: Path,
     study: str,
@@ -289,25 +443,18 @@ def _attach_resolution(
     for record in report["records"]:
         key = _record_key(record)
         if bool(record["supports_consistent"]):
-            category = _policy_category(record)
-            resolution = {
+            resolution = _normalise_resolution({
                 "status": "RESOLVED",
                 "source": "base",
                 "attempts": [_base_attempt(record)],
                 "final": _base_attempt(record),
-                "final_category": category,
-                "final_verdict": category,
-            }
+            })
         else:
             try:
                 resolution = checkpoint["resolved"][key]
             except KeyError as error:
                 raise RuntimeError(f"missing FOV resolution for {study}: {key}") from error
-        if resolution["status"] == "RESOLVED":
-            resolution = deepcopy(resolution)
-            category = _policy_category(resolution["final"]["assessment"])
-            resolution["final_category"] = category
-            resolution["final_verdict"] = category
+        resolution = _normalise_resolution(deepcopy(resolution))
         final_attempt = resolution["final"]
         final_assessment = final_attempt["assessment"]
         updated = deepcopy(record)
@@ -315,9 +462,14 @@ def _attach_resolution(
         final_config = dict(updated["record_config"])
         final_config.update(final_attempt["budget"])
         updated["record_config"] = final_config
+        updated["source_state_artifact"] = _cache_relative_artifact(
+            updated["source_state_artifact"], checkpoint_dir
+        )
         updated["geometry_resolution"] = resolution
         updated["final_category"] = resolution["final_category"]
         updated["final_verdict"] = resolution["final_verdict"]
+        updated["verdict"] = resolution["final_verdict"]
+        updated["verdict_reason"] = resolution["final_verdict_reason"]
         final_records.append(updated)
         category = resolution["final_category"]
         if category not in tally:
@@ -332,6 +484,7 @@ def _attach_resolution(
             budget_counts[label] = budget_counts.get(label, 0) + 1
     final_report = deepcopy(report)
     final_report["records"] = final_records
+    _recompute_derived_summaries(final_report, final_records, study)
     final_report["geometry_resolution"] = {
         "description": (
             "Each initially unresolved FOV geometry was reassessed from its persisted, "
@@ -378,15 +531,9 @@ def _reclassify_resolved(checkpoint_dir: Path, studies: tuple[str, ...]) -> None
         checkpoint = _load_resolution(checkpoint_dir, study, base_path)
         changed = 0
         for resolution in checkpoint["resolved"].values():
-            if resolution["status"] != "RESOLVED":
-                continue
-            category = _policy_category(resolution["final"]["assessment"])
-            if (
-                resolution["final_category"] != category
-                or resolution["final_verdict"] != category
-            ):
-                resolution["final_category"] = category
-                resolution["final_verdict"] = category
+            before = json.dumps(resolution, sort_keys=True)
+            _normalise_resolution(resolution)
+            if json.dumps(resolution, sort_keys=True) != before:
                 changed += 1
         if changed:
             _atomic_json(_resolution_path(checkpoint_dir, study), checkpoint)

@@ -464,10 +464,11 @@ def _records(config: BrusselatorConditioningConfig) -> list[dict[str, Any]]:
                     for step, state in zip(sample_steps, source_states, strict=True)
                 ]
         array_path, _ = _cache_paths(config, regime, fingerprint)
+        relative_array_path = array_path.relative_to(_cache_directory(config))
         for sample_position, (index, time_value, state, developedness) in enumerate(samples):
             source_artifact = {
                 "schema": SOURCE_STATE_ARTIFACT_SCHEMA,
-                "relative_path": str(array_path),
+                "relative_path": str(relative_array_path),
                 "sample_position": sample_position,
                 "source_state_identity": identities[sample_position],
                 "generation_fingerprint": fingerprint,
@@ -877,7 +878,13 @@ def reassess_brusselator_record(
         source_state_cache_dir=source_state_cache_dir,
     )
     expected_path, _ = _cache_paths(replay, regime, fingerprint)
-    if Path(artifact["relative_path"]) != expected_path:
+    try:
+        relative_path = Path(artifact["relative_path"])
+    except TypeError as error:
+        raise RuntimeError("record source-state artifact path is invalid") from error
+    if relative_path.is_absolute() or ".." in relative_path.parts:
+        raise RuntimeError("record source-state artifact path must be cache-root-relative")
+    if _cache_directory(replay) / relative_path != expected_path:
         raise RuntimeError("record source-state artifact path does not match the replay cache")
     loaded = _load_cached_states(replay, regime, fingerprint)
     if loaded is None:

@@ -148,6 +148,21 @@ def _fourier_weyl_bound(
     )
 
 
+def _weak_bound_override_eligible(assessment: Any) -> bool:
+    """Return whether a weak certificate may refine an otherwise usable reading.
+
+    ``assess_preconditioner`` uses ``indeterminate`` for incomplete or invalid
+    diagnostics (including a short or non-finite Ritz spectrum).  A valid but
+    sub-threshold full-operator bound cannot erase that abstention.  It only
+    refines an ordinary investigate/provisional reading whose outlier count was
+    actually measured.
+    """
+    return (
+        assessment.verdict in {"investigate", "provisional"}
+        and assessment.n_right_real_outliers is not None
+    )
+
+
 def _lobpcg_sigma_min_upper_estimate(
     operator: LinearizedOperator,
     seed: int,
@@ -588,6 +603,7 @@ def assess_brusselator_state(
     verdict_reason = assessment.verdict_reason
     if (
         bound_status == "valid_but_below_adequacy_gate"
+        and _weak_bound_override_eligible(assessment)
         and assessment.supports_consistent
         and not field_of_values.origin_enclosed
     ):

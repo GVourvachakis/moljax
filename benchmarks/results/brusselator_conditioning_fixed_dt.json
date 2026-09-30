@@ -41,14 +41,14 @@
               "max_abs_u_minus_steady": 0.13389947194653695,
               "max_abs_v_minus_steady": 0.19990366632853274
             },
-            "disk_rate": 1.0395584236705968,
+            "disk_rate": 0.7562746759275835,
             "epsilon_zero": 0.22186872946133565,
-            "fov_imaginary_extent": 0.7236189706748432,
+            "fov_imaginary_extent": 0.725760113554832,
             "n_right_real_outliers": 0,
             "origin_enclosed": false,
             "time": 9.999999999999996,
             "trajectory_step": 50,
-            "verdict": "indeterminate"
+            "verdict": "adequate"
           },
           "early": {
             "actual_gmres_converged": true,
@@ -59,14 +59,14 @@
               "max_abs_u_minus_steady": 0.0006669854907104256,
               "max_abs_v_minus_steady": 0.0003798395023646428
             },
-            "disk_rate": 1.1017583168786111,
+            "disk_rate": 0.7988869289358963,
             "epsilon_zero": 0.29202130478215377,
-            "fov_imaginary_extent": 0.7635654086801925,
+            "fov_imaginary_extent": 0.7652874262854311,
             "n_right_real_outliers": 0,
             "origin_enclosed": false,
             "time": 0.2,
             "trajectory_step": 1,
-            "verdict": "indeterminate"
+            "verdict": "adequate"
           }
         },
         "identity": {
@@ -80,14 +80,14 @@
               "max_abs_u_minus_steady": 0.13389947194653695,
               "max_abs_v_minus_steady": 0.19990366632853274
             },
-            "disk_rate": 0.9768541628144692,
+            "disk_rate": 0.989915996380429,
             "epsilon_zero": 0.22186872946133565,
-            "fov_imaginary_extent": 0.8246377463417922,
+            "fov_imaginary_extent": 0.834818494862729,
             "n_right_real_outliers": 0,
             "origin_enclosed": false,
             "time": 9.999999999999996,
             "trajectory_step": 50,
-            "verdict": "indeterminate"
+            "verdict": "investigate"
           },
           "early": {
             "actual_gmres_converged": true,
@@ -98,20 +98,20 @@
               "max_abs_u_minus_steady": 0.0006669854907104256,
               "max_abs_v_minus_steady": 0.0003798395023646428
             },
-            "disk_rate": 0.9769118666762968,
+            "disk_rate": 0.9900711088766901,
             "epsilon_zero": 0.29202130478215377,
-            "fov_imaginary_extent": 0.8782690764956353,
+            "fov_imaginary_extent": 0.8788621387217952,
             "n_right_real_outliers": 0,
             "origin_enclosed": false,
             "time": 0.2,
             "trajectory_step": 1,
-            "verdict": "indeterminate"
+            "verdict": "investigate"
           }
         }
       },
       "turing": {
         "fft_diffusion": {
-          "adequate_to_indeterminate": false,
+          "adequate_to_indeterminate": true,
           "developed": {
             "actual_gmres_converged": true,
             "actual_gmres_final_relative_residual": 1.347212520133883e-09,
@@ -121,9 +121,9 @@
               "max_abs_u_minus_steady": 2.2330698605176114,
               "max_abs_v_minus_steady": 0.906310156679294
             },
-            "disk_rate": 2.162782274259703,
+            "disk_rate": 1.5918258859166197,
             "epsilon_zero": 0.8504103830971194,
-            "fov_imaginary_extent": 1.5112388060459565,
+            "fov_imaginary_extent": 1.559048768174024,
             "n_right_real_outliers": 0,
             "origin_enclosed": true,
             "time": 199.9999999999972,
@@ -139,14 +139,14 @@
               "max_abs_u_minus_steady": 0.0005741192438215581,
               "max_abs_v_minus_steady": 0.00013068574160124413
             },
-            "disk_rate": 0.5930852707200961,
+            "disk_rate": 0.4253590484583621,
             "epsilon_zero": 0.5982879265704698,
-            "fov_imaginary_extent": 0.4148163692988749,
+            "fov_imaginary_extent": 0.4155626737615953,
             "n_right_real_outliers": 0,
             "origin_enclosed": false,
             "time": 0.2,
             "trajectory_step": 1,
-            "verdict": "indeterminate"
+            "verdict": "adequate"
           }
         },
         "identity": {
@@ -160,14 +160,14 @@
               "max_abs_u_minus_steady": 2.2330698605176114,
               "max_abs_v_minus_steady": 0.906310156679294
             },
-            "disk_rate": 0.9952235646803507,
+            "disk_rate": 0.9980383386572995,
             "epsilon_zero": 11.676879012052913,
-            "fov_imaginary_extent": 2.023688117285153,
+            "fov_imaginary_extent": 2.078648217023656,
             "n_right_real_outliers": 0,
             "origin_enclosed": false,
             "time": 199.9999999999972,
             "trajectory_step": 1000,
-            "verdict": "indeterminate"
+            "verdict": "provisional"
           },
           "early": {
             "actual_gmres_converged": false,
@@ -178,14 +178,14 @@
               "max_abs_u_minus_steady": 0.0005741192438215581,
               "max_abs_v_minus_steady": 0.00013068574160124413
             },
-            "disk_rate": 0.9951833422886768,
+            "disk_rate": 0.9958155602181937,
             "epsilon_zero": 0.5982879265704698,
-            "fov_imaginary_extent": 0.5008872298696545,
+            "fov_imaginary_extent": 0.50136971866888,
             "n_right_real_outliers": 0,
             "origin_enclosed": false,
             "time": 0.2,
             "trajectory_step": 1,
-            "verdict": "indeterminate"
+            "verdict": "investigate"
           }
         }
       }
@@ -460,6 +460,7 @@
         },
         "final_category": "investigate",
         "final_verdict": "investigate",
+        "final_verdict_reason": null,
         "source": "fov_support_escalation",
         "status": "RESOLVED"
       },
@@ -593,7 +594,7 @@
           },
           "state_dt": 0.2
         },
-        "relative_path": "/tmp/moljax-brusselator-stage2-d4047f3-v4-r1/source_states/hopf-9c47bc02261685fb.npz",
+        "relative_path": "hopf-9c47bc02261685fb.npz",
         "sample_position": 0,
         "schema": "brusselator_conditioning_source_state_v4",
         "source_state_identity": {
@@ -831,6 +832,7 @@
         },
         "final_category": "adequate",
         "final_verdict": "adequate",
+        "final_verdict_reason": null,
         "source": "fov_support_escalation",
         "status": "RESOLVED"
       },
@@ -964,7 +966,7 @@
           },
           "state_dt": 0.2
         },
-        "relative_path": "/tmp/moljax-brusselator-stage2-d4047f3-v4-r1/source_states/hopf-9c47bc02261685fb.npz",
+        "relative_path": "hopf-9c47bc02261685fb.npz",
         "sample_position": 0,
         "schema": "brusselator_conditioning_source_state_v4",
         "source_state_identity": {
@@ -1202,6 +1204,7 @@
         },
         "final_category": "investigate",
         "final_verdict": "investigate",
+        "final_verdict_reason": null,
         "source": "fov_support_escalation",
         "status": "RESOLVED"
       },
@@ -1335,7 +1338,7 @@
           },
           "state_dt": 0.2
         },
-        "relative_path": "/tmp/moljax-brusselator-stage2-d4047f3-v4-r1/source_states/hopf-9c47bc02261685fb.npz",
+        "relative_path": "hopf-9c47bc02261685fb.npz",
         "sample_position": 1,
         "schema": "brusselator_conditioning_source_state_v4",
         "source_state_identity": {
@@ -1573,6 +1576,7 @@
         },
         "final_category": "adequate",
         "final_verdict": "adequate",
+        "final_verdict_reason": null,
         "source": "fov_support_escalation",
         "status": "RESOLVED"
       },
@@ -1706,7 +1710,7 @@
           },
           "state_dt": 0.2
         },
-        "relative_path": "/tmp/moljax-brusselator-stage2-d4047f3-v4-r1/source_states/hopf-9c47bc02261685fb.npz",
+        "relative_path": "hopf-9c47bc02261685fb.npz",
         "sample_position": 1,
         "schema": "brusselator_conditioning_source_state_v4",
         "source_state_identity": {
@@ -1944,6 +1948,7 @@
         },
         "final_category": "investigate",
         "final_verdict": "investigate",
+        "final_verdict_reason": null,
         "source": "fov_support_escalation",
         "status": "RESOLVED"
       },
@@ -2077,7 +2082,7 @@
           },
           "state_dt": 0.2
         },
-        "relative_path": "/tmp/moljax-brusselator-stage2-d4047f3-v4-r1/source_states/turing-3480709ab910f99b.npz",
+        "relative_path": "turing-3480709ab910f99b.npz",
         "sample_position": 0,
         "schema": "brusselator_conditioning_source_state_v4",
         "source_state_identity": {
@@ -2315,6 +2320,7 @@
         },
         "final_category": "adequate",
         "final_verdict": "adequate",
+        "final_verdict_reason": null,
         "source": "fov_support_escalation",
         "status": "RESOLVED"
       },
@@ -2448,7 +2454,7 @@
           },
           "state_dt": 0.2
         },
-        "relative_path": "/tmp/moljax-brusselator-stage2-d4047f3-v4-r1/source_states/turing-3480709ab910f99b.npz",
+        "relative_path": "turing-3480709ab910f99b.npz",
         "sample_position": 0,
         "schema": "brusselator_conditioning_source_state_v4",
         "source_state_identity": {
@@ -2759,6 +2765,7 @@
         },
         "final_category": "provisional",
         "final_verdict": "provisional",
+        "final_verdict_reason": "certification not established by the methods attempted",
         "source": "fov_support_escalation",
         "status": "RESOLVED"
       },
@@ -2892,7 +2899,7 @@
           },
           "state_dt": 0.2
         },
-        "relative_path": "/tmp/moljax-brusselator-stage2-d4047f3-v4-r1/source_states/turing-3480709ab910f99b.npz",
+        "relative_path": "turing-3480709ab910f99b.npz",
         "sample_position": 1,
         "schema": "brusselator_conditioning_source_state_v4",
         "source_state_identity": {
@@ -2921,8 +2928,8 @@
       "supports_corroborated": true,
       "time": 199.9999999999972,
       "trajectory_step": 1000,
-      "verdict": "investigate",
-      "verdict_reason": null
+      "verdict": "provisional",
+      "verdict_reason": "certification not established by the methods attempted"
     },
     {
       "actual_gmres": {
@@ -3130,6 +3137,7 @@
         },
         "final_category": "indeterminate",
         "final_verdict": "indeterminate",
+        "final_verdict_reason": null,
         "source": "fov_support_escalation",
         "status": "RESOLVED"
       },
@@ -3263,7 +3271,7 @@
           },
           "state_dt": 0.2
         },
-        "relative_path": "/tmp/moljax-brusselator-stage2-d4047f3-v4-r1/source_states/turing-3480709ab910f99b.npz",
+        "relative_path": "turing-3480709ab910f99b.npz",
         "sample_position": 1,
         "schema": "brusselator_conditioning_source_state_v4",
         "source_state_identity": {

@@ -57,8 +57,10 @@
     "uncertified_at_cap_reason_counts": {}
   },
   "hopf_vs_turing": {
+    "hopf_adequate_fft_records": 2,
     "outcome": "both_adequate_under_fft",
-    "statement": "The FFT diffusion preconditioner is assessed adequate for both visited-state regimes; the larger Hopf imaginary extent is recorded, but it does not change the decision verdict."
+    "statement": "The FFT diffusion preconditioner is assessed adequate for both visited-state regimes.",
+    "turing_adequate_fft_records": 2
   },
   "model": {
     "boundary": "periodic",
@@ -283,6 +285,7 @@
         },
         "final_category": "adequate",
         "final_verdict": "adequate",
+        "final_verdict_reason": null,
         "source": "fov_support_escalation",
         "status": "RESOLVED"
       },
@@ -416,7 +419,7 @@
           },
           "state_dt": 0.1
         },
-        "relative_path": "/tmp/moljax-brusselator-stage2-d4047f3-v4-r1/source_states/hopf-44b4c6b42988d682.npz",
+        "relative_path": "hopf-44b4c6b42988d682.npz",
         "sample_position": 0,
         "schema": "brusselator_conditioning_source_state_v4",
         "source_state_identity": {
@@ -650,6 +653,7 @@
         },
         "final_category": "adequate",
         "final_verdict": "adequate",
+        "final_verdict_reason": null,
         "source": "fov_support_escalation",
         "status": "RESOLVED"
       },
@@ -783,7 +787,7 @@
           },
           "state_dt": 0.1
         },
-        "relative_path": "/tmp/moljax-brusselator-stage2-d4047f3-v4-r1/source_states/hopf-44b4c6b42988d682.npz",
+        "relative_path": "hopf-44b4c6b42988d682.npz",
         "sample_position": 0,
         "schema": "brusselator_conditioning_source_state_v4",
         "source_state_identity": {
@@ -1017,6 +1021,7 @@
         },
         "final_category": "adequate",
         "final_verdict": "adequate",
+        "final_verdict_reason": null,
         "source": "fov_support_escalation",
         "status": "RESOLVED"
       },
@@ -1150,7 +1155,7 @@
           },
           "state_dt": 0.1
         },
-        "relative_path": "/tmp/moljax-brusselator-stage2-d4047f3-v4-r1/source_states/hopf-44b4c6b42988d682.npz",
+        "relative_path": "hopf-44b4c6b42988d682.npz",
         "sample_position": 1,
         "schema": "brusselator_conditioning_source_state_v4",
         "source_state_identity": {
@@ -1384,6 +1389,7 @@
         },
         "final_category": "adequate",
         "final_verdict": "adequate",
+        "final_verdict_reason": null,
         "source": "fov_support_escalation",
         "status": "RESOLVED"
       },
@@ -1517,7 +1523,7 @@
           },
           "state_dt": 0.1
         },
-        "relative_path": "/tmp/moljax-brusselator-stage2-d4047f3-v4-r1/source_states/hopf-44b4c6b42988d682.npz",
+        "relative_path": "hopf-44b4c6b42988d682.npz",
         "sample_position": 1,
         "schema": "brusselator_conditioning_source_state_v4",
         "source_state_identity": {
@@ -1751,6 +1757,7 @@
         },
         "final_category": "adequate",
         "final_verdict": "adequate",
+        "final_verdict_reason": null,
         "source": "fov_support_escalation",
         "status": "RESOLVED"
       },
@@ -1884,7 +1891,7 @@
           },
           "state_dt": 0.1
         },
-        "relative_path": "/tmp/moljax-brusselator-stage2-d4047f3-v4-r1/source_states/turing-c50a7896b6a14f73.npz",
+        "relative_path": "turing-c50a7896b6a14f73.npz",
         "sample_position": 0,
         "schema": "brusselator_conditioning_source_state_v4",
         "source_state_identity": {
@@ -2118,6 +2125,7 @@
         },
         "final_category": "adequate",
         "final_verdict": "adequate",
+        "final_verdict_reason": null,
         "source": "fov_support_escalation",
         "status": "RESOLVED"
       },
@@ -2251,7 +2259,7 @@
           },
           "state_dt": 0.1
         },
-        "relative_path": "/tmp/moljax-brusselator-stage2-d4047f3-v4-r1/source_states/turing-c50a7896b6a14f73.npz",
+        "relative_path": "turing-c50a7896b6a14f73.npz",
         "sample_position": 0,
         "schema": "brusselator_conditioning_source_state_v4",
         "source_state_identity": {
@@ -2485,6 +2493,7 @@
         },
         "final_category": "adequate",
         "final_verdict": "adequate",
+        "final_verdict_reason": null,
         "source": "fov_support_escalation",
         "status": "RESOLVED"
       },
@@ -2618,7 +2627,7 @@
           },
           "state_dt": 0.1
         },
-        "relative_path": "/tmp/moljax-brusselator-stage2-d4047f3-v4-r1/source_states/turing-c50a7896b6a14f73.npz",
+        "relative_path": "turing-c50a7896b6a14f73.npz",
         "sample_position": 1,
         "schema": "brusselator_conditioning_source_state_v4",
         "source_state_identity": {
@@ -2852,6 +2861,7 @@
         },
         "final_category": "adequate",
         "final_verdict": "adequate",
+        "final_verdict_reason": null,
         "source": "fov_support_escalation",
         "status": "RESOLVED"
       },
@@ -2985,7 +2995,7 @@
           },
           "state_dt": 0.1
         },
-        "relative_path": "/tmp/moljax-brusselator-stage2-d4047f3-v4-r1/source_states/turing-c50a7896b6a14f73.npz",
+        "relative_path": "turing-c50a7896b6a14f73.npz",
         "sample_position": 1,
         "schema": "brusselator_conditioning_source_state_v4",
         "source_state_identity": {
@@ -3022,8 +3032,8 @@
     "hopf": {
       "fft_records": 2,
       "median_actual_fft_gmres_iterations": 6.5,
-      "median_disk_rate": 0.615545260989985,
-      "median_fov_imaginary_extent": 0.41033660474877753,
+      "median_disk_rate": 0.4404371091303861,
+      "median_fov_imaginary_extent": 0.41192927056874007,
       "origin_enclosed_fraction": 0.0,
       "parameters": {
         "a": 1.0,
@@ -3035,8 +3045,8 @@
         "reference_final_time": 50.0
       },
       "verdict_distribution": {
-        "adequate": 0,
-        "indeterminate": 2,
+        "adequate": 2,
+        "indeterminate": 0,
         "investigate": 0,
         "skipped": 0
       }
@@ -3044,8 +3054,8 @@
     "turing": {
       "fft_records": 2,
       "median_actual_fft_gmres_iterations": 7.0,
-      "median_disk_rate": 0.31250585811185105,
-      "median_fov_imaginary_extent": 0.22029285479546162,
+      "median_disk_rate": 0.2257812655459558,
+      "median_fov_imaginary_extent": 0.22106216956137445,
       "origin_enclosed_fraction": 0.0,
       "parameters": {
         "a": 1.0,
@@ -3057,8 +3067,8 @@
         "reference_final_time": 200.0
       },
       "verdict_distribution": {
-        "adequate": 0,
-        "indeterminate": 2,
+        "adequate": 2,
+        "indeterminate": 0,
         "investigate": 0,
         "skipped": 0
       }
