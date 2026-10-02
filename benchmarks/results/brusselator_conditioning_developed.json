@@ -88,7 +88,7 @@
     "hopf_origin_enclosed_any": true,
     "outcome": "both_regimes_indeterminate_on_developed_states",
     "scope_caveat": "This is a 64x64 screen with BE dt=1; Hopf reaches t=20 and Turing reaches t=200, below the 256x256 target scale. The FOV values use the dt=1 BE operator.",
-    "statement": "Both evolved regimes are indeterminate at every sampled FFT-preconditioned state because their numerical ranges enclose the origin; Hopf still has the larger, growing imaginary extent.",
+    "statement": "Both evolved regimes are indeterminate at every sampled FFT-preconditioned state in this screen. The corroborated FOV diagnostics enclose the origin, while Hopf still has the larger, growing imaginary extent.",
     "turing_nonadequate_fft_records": 3,
     "turing_origin_enclosed_any": true
   },

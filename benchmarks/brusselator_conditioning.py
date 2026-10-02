@@ -776,8 +776,8 @@ def _hopf_vs_turing(
         ),
         "statement": (
             "Both evolved regimes are indeterminate at every sampled FFT-preconditioned state "
-            "because their numerical ranges enclose the origin; Hopf still has the larger, "
-            "growing imaginary extent."
+            "in this screen. The corroborated FOV diagnostics enclose the origin, while "
+            "Hopf still has the larger, growing imaginary extent."
             if both
             else "The developed FFT-preconditioned regimes have mixed outcomes; "
             "see the per-regime summaries."
