@@ -25,6 +25,23 @@ Every value below cites its JSON pointer in `cn_benchmark_audit.json`.
 Per-step exit reason, lagged and post-update residual, and finiteness are in `/m1/*/records/*` and `/m2/*/records/*`.
 The paper's Table 14 footnote uses approximately three NFE per CN step; the measured iteration distributions above test that assumption.
 
+## Added after the pre-registered run: derived checks
+
+Added after the pre-registered run: Brusselator M1 has 27 cap exits in 5 bursts (steps 346–350, 502–506, 658–662, 814–819, 970–975). Burst starts are separated by 156, 156, 156, 156 steps, or 7.8, 7.8, 7.8, 7.8 time units at dt=0.05. Exactly 10 of 1000 steps (1.0%) have a cap exit with post-update residual above 1e-6; the maximum cap-exit post-update residual is 6.6449026e-06. The pre-registered rule requires more than 1%, so M1 remains MARGINAL. Source: `/m1/brusselator/records/*`, `/m1/brusselator/category`.
+
+Added after the pre-registered run: the M0 homogeneous zero-mode thresholds follow from rho(G0) = dt × rho(J_R)/2. The coefficients rho(G0)/dt and the exact dt* satisfying rho(G0)=1 are:
+
+| Model | rho(G0)/dt | dt* | Source |
+|---|---:|---:|---|
+| brusselator | 0.5 | 2 | `/m0/brusselator/rho_zero_mode`, `/m0/brusselator/reaction_jacobian`; dt from `CONFIGS['brusselator']` |
+| gray_scott | 0.05 | 20 | `/m0/gray_scott/rho_zero_mode`, `/m0/gray_scott/reaction_jacobian`; dt from `CONFIGS['gray_scott']` |
+| schnakenberg | 500 | 0.002 | `/m0/schnakenberg/rho_zero_mode`, `/m0/schnakenberg/reaction_jacobian`; dt from `CONFIGS['schnakenberg']` |
+
+Added after the pre-registered run: Schnakenberg's coefficient is gamma sqrt(det J_kin)/2, Brusselator's is 1/2, and Gray–Scott's is (F+k)/2 at its trivial state. Each agrees with the stored M0 rho(G0).
+
+Added after the pre-registered run: Schnakenberg m1 first becomes non-finite at step 1; all 9999 later steps record one iteration because `NaN > tol` is false. Source: `/m1/schnakenberg/first_nonfinite_step`, `/m1/schnakenberg/records/*`.
+Added after the pre-registered run: Schnakenberg m2 first becomes non-finite at step 2; all 9998 later steps record one iteration because `NaN > tol` is false. Source: `/m2/schnakenberg/first_nonfinite_step`, `/m2/schnakenberg/records/*`.
+
 ## M3: Schnakenberg first-iterate systems
 
 | State | Source | Preconditioner | Left iterations | Right iterations | kappa2(P) | Arnoldi rho |

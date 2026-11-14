@@ -158,11 +158,13 @@ def _inverse_apply(
     )
 
 
-def make_step(name: str, n: int, arm: str):
+def make_step(name: str, n: int, arm: str, *, dt_override: float | None = None):
     """Return the script's while-loop update and extra, read-only diagnostics."""
     cfg = CONFIGS[name]
+    if dt_override is not None and arm != "fft":
+        raise ValueError("dt_override is only supported for the FFT fidelity check")
     lam = jnp.asarray(lap_symbol(n))
-    h = 0.5 * cfg["dt"]
+    h = 0.5 * (cfg["dt"] if dt_override is None else dt_override)
     p_u = 1.0 / (1.0 - h * cfg["du"] * lam)
     p_v = 1.0 / (1.0 - h * cfg["dv"] * lam)
 
@@ -574,6 +576,87 @@ def render(payload: dict[str, Any]) -> str:
         "",
         "Per-step exit reason, lagged and post-update residual, and finiteness are in `/m1/*/records/*` and `/m2/*/records/*`.",
         "The paper's Table 14 footnote uses approximately three NFE per CN step; the measured iteration distributions above test that assumption.",
+        "",
+        "## Added after the pre-registered run: derived checks",
+        "",
+    ]
+    records = payload["m1"]["brusselator"]["records"]
+    caps = [record for record in records if record["exit_reason"] == "cap"]
+    bursts: list[list[int]] = []
+    for record in caps:
+        step_number = record["step"]
+        if not bursts or step_number > bursts[-1][-1] + 1:
+            bursts.append([step_number])
+        else:
+            bursts[-1].append(step_number)
+    starts = [burst[0] for burst in bursts]
+    spacings = [later - earlier for earlier, later in zip(starts, starts[1:], strict=False)]
+    bad_caps = [
+        record
+        for record in caps
+        if record["post_residual"] is not None and record["post_residual"] > 1e-6
+    ]
+    maximum = max(record["post_residual"] for record in caps if record["post_residual"] is not None)
+    burst_text = ", ".join(f"{burst[0]}–{burst[-1]}" for burst in bursts)
+    spacing_text = ", ".join(str(spacing) for spacing in spacings)
+    time_spacing_text = ", ".join(
+        f"{spacing * CONFIGS['brusselator']['dt']:g}" for spacing in spacings
+    )
+    if payload["m1"]["brusselator"]["category"] != "MARGINAL":
+        raise ValueError("Brusselator boundary-case text requires the MARGINAL category")
+    lines += [
+        "Added after the pre-registered run: Brusselator M1 has "
+        f"{len(caps)} cap exits in {len(bursts)} bursts (steps {burst_text}). "
+        f"Burst starts are separated by {spacing_text} steps, or {time_spacing_text} "
+        f"time units at dt={CONFIGS['brusselator']['dt']}. Exactly {len(bad_caps)} "
+        f"of {len(records)} steps ({100 * len(bad_caps) / len(records):.1f}%) have "
+        "a cap exit with post-update residual above 1e-6; the maximum cap-exit "
+        f"post-update residual is {maximum:.8g}. The pre-registered rule requires "
+        "more than 1%, so M1 remains MARGINAL. Source: "
+        "`/m1/brusselator/records/*`, `/m1/brusselator/category`.",
+        "",
+        "Added after the pre-registered run: the M0 homogeneous zero-mode "
+        "thresholds follow from rho(G0) = dt × rho(J_R)/2. The coefficients "
+        "rho(G0)/dt and the exact dt* satisfying rho(G0)=1 are:",
+        "",
+        "| Model | rho(G0)/dt | dt* | Source |",
+        "|---|---:|---:|---|",
+    ]
+    for name, item in payload["m0"].items():
+        coefficient = item["rho_zero_mode"] / CONFIGS[name]["dt"]
+        eigen_coefficient = float(
+            np.max(np.abs(np.linalg.eigvals(np.asarray(item["reaction_jacobian"])))) / 2
+        )
+        if not np.isclose(coefficient, eigen_coefficient, rtol=1e-12, atol=1e-12):
+            raise ValueError(f"M0 zero-mode coefficient mismatch for {name}")
+        lines.append(
+            f"| {name} | {coefficient:g} | {1 / coefficient:g} | "
+            f"`/m0/{name}/rho_zero_mode`, `/m0/{name}/reaction_jacobian`; "
+            f"dt from `CONFIGS[{name!r}]` |"
+        )
+    lines += [
+        "",
+        "Added after the pre-registered run: Schnakenberg's coefficient is "
+        "gamma sqrt(det J_kin)/2, Brusselator's is 1/2, and Gray–Scott's is "
+        "(F+k)/2 at its trivial state. Each agrees with the stored M0 rho(G0).",
+        "",
+    ]
+    for arm in ("m1", "m2"):
+        item = payload[arm]["schnakenberg"]
+        first = item["first_nonfinite_step"]
+        if first is None:
+            raise ValueError(f"{arm} Schnakenberg lacks a first non-finite step")
+        later = item["records"][first:]
+        if any(record["iterations"] != 1 for record in later):
+            raise ValueError(f"{arm} Schnakenberg post-nonfinite iteration check failed")
+        lines.append(
+            "Added after the pre-registered run: Schnakenberg "
+            f"{arm} first becomes non-finite at step {first}; all {len(later)} "
+            "later steps record one iteration because `NaN > tol` is false. "
+            f"Source: `/{arm}/schnakenberg/first_nonfinite_step`, "
+            f"`/{arm}/schnakenberg/records/*`."
+        )
+    lines += [
         "",
         "## M3: Schnakenberg first-iterate systems",
         "",
