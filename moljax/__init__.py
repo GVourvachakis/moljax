@@ -16,7 +16,7 @@ Key Features:
 """
 
 from moljax.core.bc import BCType, FieldBCSpec, apply_bc
-from moljax.core.dt_policy import CFLParams, PIDParams, propose_dt
+from moljax.core.dt_policy import CFLParams, FilterParams, PIDParams, propose_dt
 from moljax.core.grid import Grid1D, Grid2D
 from moljax.core.model import MOLModel
 from moljax.core.newton_krylov import newton_krylov_solve
@@ -109,5 +109,6 @@ __all__ = [
     # dt Policy
     "propose_dt",
     "CFLParams",
+    "FilterParams",
     "PIDParams",
 ]

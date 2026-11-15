@@ -32,9 +32,11 @@ from jax import lax
 
 from moljax.core.dt_policy import (
     ControllerState,
+    FilterParams,
     PIDParams,
     create_initial_controller_state,
     propose_dt_etd,
+    resolve_filter_params,
 )
 from moljax.core.fft_operators import FFTLinearOperator
 from moljax.core.jit_kernels import phi1, phi2, phi3
@@ -746,8 +748,17 @@ class _TickPlan(NamedTuple):
     k_max_last: jnp.ndarray    # the largest step to tick n_ticks
 
 
-def _build_etd_adaptive_driver(linear_ops, nonlinear_rhs, method, pid_params, max_steps,
-                               save_every, max_rejections_per_step, rhs_uses_time):
+def _build_etd_adaptive_driver(
+    linear_ops,
+    nonlinear_rhs,
+    method,
+    pid_params,
+    max_steps,
+    save_every,
+    max_rejections_per_step,
+    rhs_uses_time,
+    filter_params,
+):
     """
     Compile the while loop of etd_integrate_adaptive for one set of static parameters.
 
@@ -928,7 +939,13 @@ def _build_etd_adaptive_driver(linear_ops, nonlinear_rhs, method, pid_params, ma
             accept = finite & (err_ratio <= 1.0)
 
             dt_new, controller = propose_dt_etd(
-                h, err_ratio, s.controller, pid_params, controller_order, accepted=accept
+                h,
+                err_ratio,
+                s.controller,
+                pid_params,
+                controller_order,
+                accepted=accept,
+                filter_params=filter_params,
             )
 
             def accept_step():
@@ -1018,8 +1035,18 @@ def _build_etd_adaptive_driver(linear_ops, nonlinear_rhs, method, pid_params, ma
     return jax.jit(run)
 
 
-def _etd_adaptive_driver(u0, linear_ops, nonlinear_rhs, method, pid_params, max_steps,
-                         save_every, max_rejections_per_step, rhs_uses_time):
+def _etd_adaptive_driver(
+    u0,
+    linear_ops,
+    nonlinear_rhs,
+    method,
+    pid_params,
+    max_steps,
+    save_every,
+    max_rejections_per_step,
+    rhs_uses_time,
+    filter_params,
+):
     """
     Look up, or build, the compiled adaptive ETD loop for these parameters.
 
@@ -1036,6 +1063,7 @@ def _etd_adaptive_driver(u0, linear_ops, nonlinear_rhs, method, pid_params, max_
         static_cache_key(nonlinear_rhs),
         method,
         static_cache_key(pid_params),
+        static_cache_key(filter_params),
         max_steps,
         save_every,
         max_rejections_per_step,
@@ -1044,7 +1072,7 @@ def _etd_adaptive_driver(u0, linear_ops, nonlinear_rhs, method, pid_params, max_
     )
     return _ETD_ADAPTIVE_DRIVERS.get_or_build(key, lambda: _build_etd_adaptive_driver(
         linear_ops, nonlinear_rhs, method, pid_params, max_steps, save_every,
-        max_rejections_per_step, rhs_uses_time
+        max_rejections_per_step, rhs_uses_time, filter_params
     ))
 
 
@@ -1316,6 +1344,7 @@ def etd_integrate_adaptive(
     save_every: int = 1,
     max_rejections_per_step: int = _DEFAULT_MAX_REJECTIONS_PER_STEP,
     rhs_uses_time: bool = True,
+    controller: None | str | FilterParams = None,
 ) -> ETDAdaptiveResult:
     """Integrate u_t = L*u + N(u) with an adaptive time step (ETD1 or ETDRK4).
 
@@ -1338,9 +1367,8 @@ def etd_integrate_adaptive(
 
     Time-step policy "ETD" (see moljax.core.dt_policy.propose_dt_etd):
     there is no CFL limit, because exp(dt*L) is exact. The PI controller
-    of PIDParams sets dt, in the range [dt_min, dt_max]. The controller
-    receives the order p + 1 of the local error estimate, not p (the
-    drivers of moljax.core.stepping give it p). The driver
+    of PIDParams, or an opt-in filter, sets dt in [dt_min, dt_max]. The
+    controller receives the order p + 1 of the local error estimate. The driver
     rejects a step that has non-finite values and cuts dt for the next
     attempt. The run stops with StatusCode.DT_TOO_SMALL only when a trial
     at dt_min is also rejected.
@@ -1368,6 +1396,8 @@ def etd_integrate_adaptive(
             the CAUTION below). Set False only for an autonomous
             nonlinear_rhs (one that does not read t); the driver then
             does not make the check.
+        controller: Optional digital-filter preset name or FilterParams.
+            None retains the shipped PI controller.
 
     Returns:
         ETDAdaptiveResult. The history holds accepted steps only. The last
@@ -1447,6 +1477,7 @@ def etd_integrate_adaptive(
         )
     if pid_params is None:
         pid_params = PIDParams()
+    filter_params = resolve_filter_params(controller)
 
     for name, field in u0.items():
         if not jnp.issubdtype(jnp.result_type(field), jnp.floating):
@@ -1471,7 +1502,7 @@ def etd_integrate_adaptive(
 
     driver = _etd_adaptive_driver(u0, linear_ops, nonlinear_rhs, method, pid_params,
                                   max_steps, save_every, max_rejections_per_step,
-                                  bool(rhs_uses_time))
+                                  bool(rhs_uses_time), filter_params)
     return driver(u0, plan, jnp.asarray(dt0, dtype=_time_dtype()))
 
 

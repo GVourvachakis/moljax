@@ -3,6 +3,7 @@
 from moljax.core.bc import BCType, FieldBCSpec, apply_bc
 from moljax.core.dt_policy import (
     CFLParams,
+    FilterParams,
     PIDParams,
     imex_cfl_dt,
     propose_dt,
@@ -274,6 +275,7 @@ __all__ = [
     # dt policy
     "propose_dt",
     "CFLParams",
+    "FilterParams",
     "PIDParams",
     "imex_cfl_dt",
     "propose_dt_etd",

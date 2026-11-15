@@ -123,15 +123,66 @@ class PIDParams:
     rtol: float = 1e-4
 
 
+@dataclass(frozen=True)
+class FilterParams:
+    """Error-ratio digital filter coefficients, with b_i divided by the
+    power of h in the local error estimate.
+
+    Presets follow PETSc ``src/ts/adapt/impls/dsp/adaptdsp.c`` filterlist.
+    See Soderlind (2003), DOI 10.1145/641876.641877, and Soderlind and
+    Wang (2006), DOI 10.1016/j.cam.2005.03.008. The post-rejection growth
+    ceiling applies to the first accepted step after a rejection.
+    """
+
+    b1: float
+    b2: float
+    b3: float
+    safety: float = 0.9
+    min_factor: float = 0.2
+    max_factor: float = 5.0
+    max_factor_after_reject: float | None = None
+    name: str = "custom"
+
+    @classmethod
+    def from_pid(cls, params: PIDParams) -> "FilterParams":
+        return cls(
+            params.kI + params.kP,
+            -params.kP,
+            0.0,
+            params.safety,
+            params.min_factor,
+            params.max_factor,
+            name="moljax_pi",
+        )
+
+
+CONTROLLER_PRESETS: dict[str, FilterParams] = {
+    "PI30": FilterParams(1 / 3, 0.0, 0.0, name="PI30"),
+    "PI42": FilterParams(0.6, -0.2, 0.0, name="PI42"),
+    "PI33": FilterParams(2 / 3, -1 / 3, 0.0, name="PI33"),
+    "PI34": FilterParams(0.7, -0.4, 0.0, name="PI34"),
+    "H312PID": FilterParams(1 / 18, 1 / 9, 1 / 18, name="H312PID"),
+    "moljax_pi": FilterParams.from_pid(PIDParams()),
+}
+
+
+def resolve_filter_params(controller: str | FilterParams | None) -> FilterParams | None:
+    """Resolve an opt-in controller before tracing an integration driver."""
+    if controller is None or isinstance(controller, FilterParams):
+        return controller
+    if isinstance(controller, str) and controller in CONTROLLER_PRESETS:
+        return CONTROLLER_PRESETS[controller]
+    raise ValueError(f"unknown controller {controller!r}; choose {tuple(CONTROLLER_PRESETS)}")
+
+
 class ControllerState(NamedTuple):
     """
     State for adaptive dt controller, passed through while_loop carry.
 
     Attributes:
         prev_err_ratio: Error ratio from previous step
-        prevprev_err_ratio: Error ratio from two steps ago. The controller
-            stores this value but does not read it, because the controller
-            is PI (see PIDParams). The field stays for API stability.
+        prevprev_err_ratio: Error ratio from two steps ago. The shipped PI
+            controller does not read it; opt-in three-error filters do.
         consecutive_rejects: Number of consecutive rejected steps
     """
 
@@ -308,6 +359,43 @@ def pid_controller_dt(
     return dt_new, new_state
 
 
+def filter_controller_dt(
+    dt_old: jnp.ndarray,
+    err_ratio: jnp.ndarray,
+    controller_state: ControllerState,
+    filter_params: FilterParams,
+    order: int,
+    pid_params: PIDParams | None = None,
+) -> tuple[jnp.ndarray, ControllerState]:
+    """Propose dt with a three-error digital filter after an accepted step."""
+    if pid_params is None:
+        pid_params = PIDParams()
+    err_safe = jnp.maximum(err_ratio, 1e-10)
+    prev_safe = jnp.maximum(controller_state.prev_err_ratio, 1e-10)
+    prevprev_safe = jnp.maximum(controller_state.prevprev_err_ratio, 1e-10)
+    factor = (
+        jnp.power(err_safe, -filter_params.b1 / order)
+        * jnp.power(prev_safe, -filter_params.b2 / order)
+        * jnp.power(prevprev_safe, -filter_params.b3 / order)
+    )
+    factor *= filter_params.safety
+    upper = filter_params.max_factor
+    if filter_params.max_factor_after_reject is not None:
+        upper = jnp.where(
+            controller_state.consecutive_rejects > 0,
+            filter_params.max_factor_after_reject,
+            upper,
+        )
+    factor = jnp.clip(factor, filter_params.min_factor, upper)
+    dt_new = jnp.clip(dt_old * factor, pid_params.dt_min, pid_params.dt_max)
+    new_state = ControllerState(
+        prev_err_ratio=err_ratio,
+        prevprev_err_ratio=controller_state.prev_err_ratio,
+        consecutive_rejects=jnp.array(0, dtype=jnp.int32),
+    )
+    return dt_new, new_state
+
+
 def handle_rejected_step(
     dt_old: jnp.ndarray,
     err_ratio: jnp.ndarray,
@@ -431,6 +519,7 @@ def propose_dt(
     pid_params: PIDParams | None = None,
     order: int = 4,
     accepted: jnp.ndarray | None = None,
+    filter_params: FilterParams | None = None,
 ) -> tuple[jnp.ndarray, ControllerState]:
     """
     Unified dt proposal function for all methods.
@@ -455,6 +544,7 @@ def propose_dt(
             be arbitrarily small (two failed solves that stall at the same
             iterate give exactly zero). Defaults to err_ratio <= 1.0, the
             error test alone.
+        filter_params: Optional opt-in digital filter. None keeps the PI path.
 
     Returns:
         Tuple of (proposed_dt, new_controller_state)
@@ -480,9 +570,14 @@ def propose_dt(
 
     # Compute base dt from controller
     def accepted_dt():
-        dt_pid, new_state = pid_controller_dt(
-            dt_old, err_ratio, controller_state, pid_params, order
-        )
+        if filter_params is None:
+            dt_pid, new_state = pid_controller_dt(
+                dt_old, err_ratio, controller_state, pid_params, order
+            )
+        else:
+            dt_pid, new_state = filter_controller_dt(
+                dt_old, err_ratio, controller_state, filter_params, order, pid_params
+            )
         return dt_pid, new_state
 
     def rejected_dt():
@@ -688,6 +783,7 @@ def propose_dt_imex(
     pid_params: PIDParams | None = None,
     order: int = 2,
     accepted: jnp.ndarray | None = None,
+    filter_params: FilterParams | None = None,
 ) -> tuple[jnp.ndarray, ControllerState]:
     """
     Propose dt for IMEX methods.
@@ -707,6 +803,7 @@ def propose_dt_imex(
         order: Power of h in this method's local error estimate
         accepted: The integrator's own accept/reject decision; see
             propose_dt. Defaults to err_ratio <= 1.0.
+        filter_params: Optional opt-in digital filter. None keeps the PI path.
 
     Returns:
         Tuple of (proposed_dt, new_controller_state)
@@ -723,9 +820,14 @@ def propose_dt_imex(
 
     # Compute base dt from controller
     def accepted_dt():
-        dt_pid, new_state = pid_controller_dt(
-            dt_old, err_ratio, controller_state, pid_params, order
-        )
+        if filter_params is None:
+            dt_pid, new_state = pid_controller_dt(
+                dt_old, err_ratio, controller_state, pid_params, order
+            )
+        else:
+            dt_pid, new_state = filter_controller_dt(
+                dt_old, err_ratio, controller_state, filter_params, order, pid_params
+            )
         return dt_pid, new_state
 
     def rejected_dt():
@@ -751,21 +853,23 @@ def propose_dt_imex(
 # ETD Policy
 # =============================================================================
 
+
 def propose_dt_etd(
     dt_old: jnp.ndarray,
     err_ratio: jnp.ndarray,
     controller_state: ControllerState,
     pid_params: PIDParams | None = None,
     order: int = 4,
-    accepted: jnp.ndarray | None = None
+    accepted: jnp.ndarray | None = None,
+    filter_params: FilterParams | None = None,
 ) -> tuple[jnp.ndarray, ControllerState]:
     """
     Propose dt for the exponential (ETD) integrators.
 
     The ETD integrators apply exp(dt*L) exactly, so the linear operator
     gives no CFL limit. This policy therefore has no diffusion limit and
-    no reaction limit. Only the PI controller (see PIDParams) and the
-    clamp to [dt_min, dt_max] set dt.
+    no reaction limit. The PI controller (or an opt-in digital filter)
+    and the clamp to [dt_min, dt_max] set dt.
 
     Args:
         dt_old: Time step of the step that was tried
@@ -773,9 +877,10 @@ def propose_dt_etd(
             a step with non-finite values: a NaN here makes dt NaN.
         controller_state: Controller state
         pid_params: Controller parameters
-        order: Order of the method
+        order: Power of h in the local error estimate
         accepted: The integrator's own accept/reject decision; see
             propose_dt. Defaults to err_ratio <= 1.0.
+        filter_params: Optional opt-in digital filter. None keeps the PI path.
 
     Returns:
         Tuple of (proposed_dt, new_controller_state). The proposed dt has
@@ -787,7 +892,14 @@ def propose_dt_etd(
         accepted = err_ratio <= 1.0
 
     def accepted_dt():
-        dt_new, state = pid_controller_dt(dt_old, err_ratio, controller_state, pid_params, order)
+        if filter_params is None:
+            dt_new, state = pid_controller_dt(
+                dt_old, err_ratio, controller_state, pid_params, order
+            )
+        else:
+            dt_new, state = filter_controller_dt(
+                dt_old, err_ratio, controller_state, filter_params, order, pid_params
+            )
         return dt_new.astype(dt_old.dtype), state
 
     def rejected_dt():

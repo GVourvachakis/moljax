@@ -28,11 +28,13 @@ from moljax.core.bc import BCType
 from moljax.core.dt_policy import (
     CFLParams,
     ControllerState,
+    FilterParams,
     PIDParams,
     compute_error_order,
     create_initial_controller_state,
     heisenberg_cfl_dt,
     propose_dt,
+    resolve_filter_params,
 )
 from moljax.core.model import (
     CompiledDriverCache,
@@ -1150,7 +1152,7 @@ _ADAPTIVE_IMEX_DRIVERS = CompiledDriverCache("stepping.adaptive_integrate_imex")
 
 
 def _build_adaptive_driver(model, method, max_steps, save_every, cfl_params, pid_params,
-                           preconditioner, nk_params, max_rejections_per_step):
+                           preconditioner, nk_params, max_rejections_per_step, filter_params):
     """
     Compile adaptive_integrate's while loop for one set of static parameters.
 
@@ -1345,7 +1347,8 @@ def _build_adaptive_driver(model, method, max_steps, save_every, cfl_params, pid
                 cfl_params=cfl_params,
                 pid_params=pid_params,
                 order=order,
-                accepted=accept
+                accepted=accept,
+                filter_params=filter_params,
             )
 
             # Update state based on accept/reject
@@ -1477,7 +1480,7 @@ def _build_adaptive_driver(model, method, max_steps, save_every, cfl_params, pid
 
 
 def _adaptive_driver(model, y0, method, max_steps, save_every, cfl_params, pid_params,
-                     preconditioner, nk_params, max_rejections_per_step):
+                     preconditioner, nk_params, max_rejections_per_step, filter_params):
     """Look up, or build, the compiled adaptive loop for these parameters."""
     key = _driver_key("adaptive_integrate", model, y0, (
         static_cache_key(method),
@@ -1488,10 +1491,11 @@ def _adaptive_driver(model, y0, method, max_steps, save_every, cfl_params, pid_p
         static_cache_key(preconditioner),
         static_cache_key(nk_params),
         static_cache_key(max_rejections_per_step),
+        static_cache_key(filter_params),
     ))
     return _ADAPTIVE_DRIVERS.get_or_build(key, lambda: _build_adaptive_driver(
         model, method, max_steps, save_every, cfl_params, pid_params, preconditioner,
-        nk_params, max_rejections_per_step
+        nk_params, max_rejections_per_step, filter_params
     ))
 
 
@@ -1508,7 +1512,8 @@ def adaptive_integrate(
     preconditioner: Preconditioner | None = None,
     nk_params: NKParams | None = None,
     save_every: int = 1,
-    max_rejections_per_step: int = _DEFAULT_MAX_REJECTIONS_PER_STEP
+    max_rejections_per_step: int = _DEFAULT_MAX_REJECTIONS_PER_STEP,
+    controller: None | str | FilterParams = None,
 ) -> AdaptiveResult:
     """
     Adaptive time integration using lax.while_loop.
@@ -1540,6 +1545,8 @@ def adaptive_integrate(
             step before the run stops with StatusCode.MAX_ATTEMPTS_REACHED.
             This budget is independent of max_steps, which counts accepted
             steps only and so never bounds a step that is rejected forever.
+        controller: Optional digital-filter preset name or FilterParams.
+            None retains the shipped PI controller.
 
     Returns:
         AdaptiveResult with final state and histories. status is
@@ -1561,12 +1568,24 @@ def adaptive_integrate(
         preconditioner = IdentityPreconditioner()
     if nk_params is None:
         nk_params = NKParams()
+    filter_params = resolve_filter_params(controller)
 
     _check_mol_method(method, "adaptive_integrate")
     _validate_time_resolution(t0, t_end, dt0, "adaptive_integrate")
 
-    driver = _adaptive_driver(model, y0, method, max_steps, save_every, cfl_params,
-                             pid_params, preconditioner, nk_params, max_rejections_per_step)
+    driver = _adaptive_driver(
+        model,
+        y0,
+        method,
+        max_steps,
+        save_every,
+        cfl_params,
+        pid_params,
+        preconditioner,
+        nk_params,
+        max_rejections_per_step,
+        filter_params,
+    )
     return driver(y0, t0, t_end, dt0)
 
 
@@ -1945,8 +1964,18 @@ def integrate_fixed_dt(
 # IMEX Adaptive Integration
 # =============================================================================
 
-def _build_adaptive_imex_driver(model, fft_cache, diffusivities, use_strang, max_steps,
-                                save_every, cfl_params, pid_params, max_rejections_per_step):
+def _build_adaptive_imex_driver(
+    model,
+    fft_cache,
+    diffusivities,
+    use_strang,
+    max_steps,
+    save_every,
+    cfl_params,
+    pid_params,
+    max_rejections_per_step,
+    filter_params,
+):
     """Compile adaptive_integrate_imex's while loop (see _build_adaptive_driver)."""
     from moljax.core.dt_policy import imex_cfl_dt, propose_dt_imex
 
@@ -2038,7 +2067,8 @@ def _build_adaptive_imex_driver(model, fft_cache, diffusivities, use_strang, max
                 cfl_params=cfl_params,
                 pid_params=pid_params,
                 order=order,
-                accepted=accept
+                accepted=accept,
+                filter_params=filter_params,
             )
 
             # Update state based on accept/reject
@@ -2160,8 +2190,19 @@ def _build_adaptive_imex_driver(model, fft_cache, diffusivities, use_strang, max
     return jax.jit(run)
 
 
-def _adaptive_imex_driver(model, y0, fft_cache, diffusivities, use_strang, max_steps,
-                          save_every, cfl_params, pid_params, max_rejections_per_step):
+def _adaptive_imex_driver(
+    model,
+    y0,
+    fft_cache,
+    diffusivities,
+    use_strang,
+    max_steps,
+    save_every,
+    cfl_params,
+    pid_params,
+    max_rejections_per_step,
+    filter_params,
+):
     """Look up, or build, the compiled adaptive IMEX loop for these parameters."""
     key = _driver_key("adaptive_integrate_imex", model, y0, (
         static_cache_key(fft_cache),
@@ -2172,10 +2213,11 @@ def _adaptive_imex_driver(model, y0, fft_cache, diffusivities, use_strang, max_s
         static_cache_key(cfl_params),
         static_cache_key(pid_params),
         static_cache_key(max_rejections_per_step),
+        static_cache_key(filter_params),
     ))
     return _ADAPTIVE_IMEX_DRIVERS.get_or_build(key, lambda: _build_adaptive_imex_driver(
         model, fft_cache, diffusivities, use_strang, max_steps, save_every, cfl_params,
-        pid_params, max_rejections_per_step
+        pid_params, max_rejections_per_step, filter_params
     ))
 
 
@@ -2192,7 +2234,8 @@ def adaptive_integrate_imex(
     cfl_params: CFLParams | None = None,
     pid_params: PIDParams | None = None,
     save_every: int = 1,
-    max_rejections_per_step: int = _DEFAULT_MAX_REJECTIONS_PER_STEP
+    max_rejections_per_step: int = _DEFAULT_MAX_REJECTIONS_PER_STEP,
+    controller: None | str | FilterParams = None,
 ) -> AdaptiveResult:
     """
     Adaptive IMEX time integration using lax.while_loop.
@@ -2216,6 +2259,8 @@ def adaptive_integrate_imex(
         max_rejections_per_step: Consecutive rejections allowed for one
             step before the run stops with StatusCode.MAX_ATTEMPTS_REACHED
             (see adaptive_integrate)
+        controller: Optional digital-filter preset name or FilterParams.
+            None retains the shipped PI controller.
 
     Returns:
         AdaptiveResult with final state and histories
@@ -2229,12 +2274,13 @@ def adaptive_integrate_imex(
         cfl_params = CFLParams()
     if pid_params is None:
         pid_params = PIDParams()
+    filter_params = resolve_filter_params(controller)
 
     _validate_time_resolution(t0, t_end, dt0, "adaptive_integrate_imex")
 
     driver = _adaptive_imex_driver(model, y0, fft_cache, diffusivities, use_strang,
                                   max_steps, save_every, cfl_params, pid_params,
-                                  max_rejections_per_step)
+                                  max_rejections_per_step, filter_params)
     return driver(y0, t0, t_end, dt0)
 
 
