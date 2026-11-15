@@ -38,9 +38,9 @@ from moljax.core.state import StateDict
 #   RK4: the classical 4-stage, 4th-order method's stability function is
 #       1 + z + z^2/2 + z^3/6 + z^4/24; its real root is at z ~= -2.7853.
 _EXPLICIT_STABILITY_BOUNDARY: dict[int, float] = {
-    0: 2.0,      # Euler
-    1: 2.5127,   # SSPRK3
-    2: 2.7853,   # RK4
+    0: 2.0,  # Euler
+    1: 2.5127,  # SSPRK3
+    2: 2.7853,  # RK4
 }
 _DEFAULT_STABILITY_BOUNDARY = _EXPLICIT_STABILITY_BOUNDARY[0]  # Euler
 
@@ -73,6 +73,7 @@ class CFLParams:
             CFLParams with it and for any external diffusion-only use.
         cfl_wave: CFL number for wave/acoustic (default 0.5)
     """
+
     safety: float = 0.9
     dt_min: float = 1e-12
     dt_max: float = 1.0
@@ -92,10 +93,10 @@ class PIDParams:
         dt_new = dt * safety * err_ratio^(-kI) * prev_err_ratio^(kP)
 
     where err_ratio = error_norm (should be <= 1 for accepted step).
-    The exact form in pid_controller_dt divides kI and kP by the order p
-    of the method, and the proportional factor is a ratio:
-        dt_new = dt * safety * err_ratio^(-kI/p)
-                 * (prev_err_ratio / err_ratio)^(kP/p)
+    The exact form in pid_controller_dt divides kI and kP by the exponent q
+    of the local error estimate, and the proportional factor is a ratio:
+        dt_new = dt * safety * err_ratio^(-kI/q)
+                 * (prev_err_ratio / err_ratio)^(kP/q)
 
     The controller does not use ControllerState.prevprev_err_ratio.
 
@@ -110,6 +111,7 @@ class PIDParams:
         atol: Absolute tolerance for error (default 1e-6)
         rtol: Relative tolerance for error (default 1e-4)
     """
+
     safety: float = 0.9
     kI: float = 0.7  # Scaled by 1/order in controller
     kP: float = 0.4  # Scaled by 1/order in controller
@@ -132,6 +134,7 @@ class ControllerState(NamedTuple):
             is PI (see PIDParams). The field stays for API stability.
         consecutive_rejects: Number of consecutive rejected steps
     """
+
     prev_err_ratio: jnp.ndarray
     prevprev_err_ratio: jnp.ndarray
     consecutive_rejects: jnp.ndarray
@@ -142,7 +145,7 @@ def create_initial_controller_state(dtype: jnp.dtype = jnp.float64) -> Controlle
     return ControllerState(
         prev_err_ratio=jnp.array(1.0, dtype=dtype),
         prevprev_err_ratio=jnp.array(1.0, dtype=dtype),
-        consecutive_rejects=jnp.array(0, dtype=jnp.int32)
+        consecutive_rejects=jnp.array(0, dtype=jnp.int32),
     )
 
 
@@ -151,7 +154,7 @@ def heisenberg_cfl_dt(
     params: dict[str, Any],
     cfl_params: CFLParams,
     dtype: jnp.dtype | None = None,
-    method: int = 0
+    method: int = 0,
 ) -> jnp.ndarray:
     """
     Compute CFL-limited time step (Heisenberg limiter).
@@ -217,42 +220,32 @@ def heisenberg_cfl_dt(
     dy = grid.dy if isinstance(grid, Grid2D) else None
 
     # Advection + diffusion, combined (see docstring above).
-    vx = jnp.abs(params.get('vx', 0.0))
-    vy = jnp.abs(params.get('vy', 0.0)) if dy is not None else jnp.array(0.0)
+    vx = jnp.abs(params.get("vx", 0.0))
+    vy = jnp.abs(params.get("vy", 0.0)) if dy is not None else jnp.array(0.0)
 
-    D = params.get('D', 0.0)
-    Du = params.get('Du', 0.0)
-    Dv = params.get('Dv', 0.0)
+    D = params.get("D", 0.0)
+    Du = params.get("Du", 0.0)
+    Dv = params.get("Dv", 0.0)
     D_max = jnp.maximum(D, jnp.maximum(Du, Dv))
 
-    lam_x = 4.0 * D_max / dx ** 2 + 2.0 * vx / dx
-    lam_y = (4.0 * D_max / dy ** 2 + 2.0 * vy / dy) if dy is not None else 0.0
+    lam_x = 4.0 * D_max / dx**2 + 2.0 * vx / dx
+    lam_y = (4.0 * D_max / dy**2 + 2.0 * vy / dy) if dy is not None else 0.0
     lam_max = lam_x + lam_y
 
     r_stab = _stability_boundary(method)
-    dt_combined = lax.cond(
-        lam_max > 1e-14,
-        lambda: r_stab / lam_max,
-        lambda: cfl_params.dt_max
-    )
+    dt_combined = lax.cond(lam_max > 1e-14, lambda: r_stab / lam_max, lambda: cfl_params.dt_max)
     dt = jnp.minimum(jnp.array(cfl_params.dt_max), dt_combined)
 
     # Wave/acoustic CFL: an independent hyperbolic constraint, unrelated to
     # the advection-diffusion operator above.
     dx_wave = grid.min_dx
-    K = params.get('K', 0.0)
-    rho = params.get('rho', 1.0)
-    c_wave = params.get('wave_speed', 0.0)
-    c_acoustic = lax.cond(
-        K > 1e-14,
-        lambda: jnp.sqrt(K / rho),
-        lambda: 0.0
-    )
+    K = params.get("K", 0.0)
+    rho = params.get("rho", 1.0)
+    c_wave = params.get("wave_speed", 0.0)
+    c_acoustic = lax.cond(K > 1e-14, lambda: jnp.sqrt(K / rho), lambda: 0.0)
     c = jnp.maximum(c_wave, c_acoustic)
     dt_wave = lax.cond(
-        c > 1e-14,
-        lambda: cfl_params.cfl_wave * dx_wave / c,
-        lambda: cfl_params.dt_max
+        c > 1e-14, lambda: cfl_params.cfl_wave * dx_wave / c, lambda: cfl_params.dt_max
     )
     dt = jnp.minimum(dt, dt_wave)
 
@@ -268,7 +261,7 @@ def pid_controller_dt(
     err_ratio: jnp.ndarray,
     controller_state: ControllerState,
     pid_params: PIDParams,
-    order: int = 4
+    order: int = 4,
 ) -> tuple[jnp.ndarray, ControllerState]:
     """
     PI controller for adaptive time step (see PIDParams for the name).
@@ -282,7 +275,7 @@ def pid_controller_dt(
         err_ratio: Current error norm (should be <= 1 for accepted step)
         controller_state: Previous controller state
         pid_params: PID parameters
-        order: Order of the method (for scaling coefficients)
+        order: Power of h in the local error estimate (for scaling coefficients)
 
     Returns:
         Tuple of (dt_new, new_controller_state)
@@ -309,7 +302,7 @@ def pid_controller_dt(
     new_state = ControllerState(
         prev_err_ratio=err_ratio,
         prevprev_err_ratio=controller_state.prev_err_ratio,
-        consecutive_rejects=jnp.array(0, dtype=jnp.int32)
+        consecutive_rejects=jnp.array(0, dtype=jnp.int32),
     )
 
     return dt_new, new_state
@@ -320,7 +313,7 @@ def handle_rejected_step(
     err_ratio: jnp.ndarray,
     controller_state: ControllerState,
     pid_params: PIDParams,
-    order: int = 4
+    order: int = 4,
 ) -> tuple[jnp.ndarray, ControllerState]:
     """
     Handle a rejected step by reducing dt more aggressively.
@@ -330,7 +323,7 @@ def handle_rejected_step(
         err_ratio: Error ratio that caused rejection (> 1)
         controller_state: Current controller state
         pid_params: PID parameters
-        order: Order of the method
+        order: Power of h in the local error estimate
 
     Returns:
         Tuple of (dt_new, new_controller_state)
@@ -350,7 +343,7 @@ def handle_rejected_step(
     new_state = ControllerState(
         prev_err_ratio=controller_state.prev_err_ratio,  # Keep old
         prevprev_err_ratio=controller_state.prevprev_err_ratio,
-        consecutive_rejects=n_rejects
+        consecutive_rejects=n_rejects,
     )
 
     return dt_new, new_state
@@ -358,6 +351,7 @@ def handle_rejected_step(
 
 class NKStats(NamedTuple):
     """Newton-Krylov solver statistics for implicit dt control."""
+
     converged: jnp.ndarray
     newton_iters: jnp.ndarray
     lin_iters: jnp.ndarray
@@ -371,39 +365,53 @@ def implicit_robustness_dt(
     dt_max: float = 1.0,
     growth_factor: float = 1.2,
     shrink_factor: float = 0.5,
-    fast_iters_threshold: int = 3
+    fast_iters_threshold: int = 3,
 ) -> jnp.ndarray:
     """
-    Adjust dt based on Newton-Krylov convergence.
+    Restrict dt based on Newton-Krylov convergence.
 
-    - Shrink dt if NK didn't converge
-    - Shrink dt if NK took many iterations
-    - Grow dt if NK converged quickly
+    The error controller owns step growth. A failed Newton solve retains the
+    inherited shrink, while a converged solve leaves the proposal unchanged,
+    regardless of its iteration count. ``growth_factor`` is retained for API
+    compatibility but capped at 1, so it can request an additional
+    restriction after a fast solve but can never enlarge the PI proposal.
+
+    This separation matters for the inherited PI form. Under the asymptotic
+    model ``err ∝ h**order``, if a post-controller factor ``g`` is applied
+    after every fast solve, the shipped PI form has the steady-state fixed
+    point ``e* = (safety * g)**(order / kI)``. Here ``kI`` is the un-normalized
+    ``PIDParams.kI`` (0.7 by default); the controller itself divides it by
+    ``order``. The defaults give ``safety * g = 0.9 * 1.2 > 1``, placing ``e*``
+    above the acceptance boundary and creating a deterministic rejection cycle.
 
     Args:
         dt_old: Current time step
         nk_stats: Statistics from NK solver
         dt_min: Minimum dt
         dt_max: Maximum dt
-        growth_factor: Factor to grow dt on fast convergence
-        shrink_factor: Factor to shrink dt on slow/failed convergence
+        growth_factor: Legacy fast-solve factor, capped at 1
+        shrink_factor: Factor to shrink dt on failed convergence
         fast_iters_threshold: Threshold for "fast" convergence
 
     Returns:
         New dt
     """
-    # Shrink if not converged
+    capped_fast_factor = jnp.minimum(
+        jnp.asarray(growth_factor, dtype=dt_old.dtype),
+        jnp.asarray(1.0, dtype=dt_old.dtype),
+    )
     dt_new = lax.cond(
         nk_stats.converged,
         lambda: dt_old,
-        lambda: dt_old * shrink_factor
+        lambda: dt_old * shrink_factor,
     )
-
-    # Adjust based on iteration count (only if converged)
     dt_new = lax.cond(
-        jnp.logical_and(nk_stats.converged, nk_stats.newton_iters <= fast_iters_threshold),
-        lambda: jnp.minimum(dt_new * growth_factor, dt_max),
-        lambda: dt_new
+        jnp.logical_and(
+            nk_stats.converged,
+            nk_stats.newton_iters <= fast_iters_threshold,
+        ),
+        lambda: dt_new * capped_fast_factor,
+        lambda: dt_new,
     )
 
     return jnp.clip(dt_new, dt_min, dt_max)
@@ -422,7 +430,7 @@ def propose_dt(
     cfl_params: CFLParams | None = None,
     pid_params: PIDParams | None = None,
     order: int = 4,
-    accepted: jnp.ndarray | None = None
+    accepted: jnp.ndarray | None = None,
 ) -> tuple[jnp.ndarray, ControllerState]:
     """
     Unified dt proposal function for all methods.
@@ -439,7 +447,7 @@ def propose_dt(
         nk_stats: NK statistics (for implicit methods)
         cfl_params: CFL parameters (default created if None)
         pid_params: PID parameters (default created if None)
-        order: Method order
+        order: Power of h in the local error estimate
         accepted: The integrator's own accept/reject decision. Pass it: a
             small error ratio is not by itself an acceptance, since the
             step must also be finite and its Newton-Krylov solve must have
@@ -483,11 +491,7 @@ def propose_dt(
         )
         return dt_rej, new_state
 
-    dt_adaptive, new_controller_state = lax.cond(
-        accepted,
-        accepted_dt,
-        rejected_dt
-    )
+    dt_adaptive, new_controller_state = lax.cond(accepted, accepted_dt, rejected_dt)
 
     # For explicit methods (0-2), also enforce CFL. The limit is taken in
     # dt_old's dtype so the two lax.cond branches below agree, and in the
@@ -497,21 +501,13 @@ def propose_dt(
     is_explicit = method < 3
     dt_cfl = heisenberg_cfl_dt(grid, params, cfl_params, dtype=dt_old.dtype, method=method)
 
-    dt_final = lax.cond(
-        is_explicit,
-        lambda: jnp.minimum(dt_adaptive, dt_cfl),
-        lambda: dt_adaptive
-    )
+    dt_final = lax.cond(is_explicit, lambda: jnp.minimum(dt_adaptive, dt_cfl), lambda: dt_adaptive)
 
     # For implicit methods with NK stats, apply robustness limiter
     if nk_stats is not None:
         is_implicit = method >= 3
         dt_robust = implicit_robustness_dt(dt_final, nk_stats)
-        dt_final = lax.cond(
-            is_implicit,
-            lambda: dt_robust,
-            lambda: dt_final
-        )
+        dt_final = lax.cond(is_implicit, lambda: dt_robust, lambda: dt_final)
 
     # Final clamp
     dt_final = jnp.clip(dt_final, pid_params.dt_min, pid_params.dt_max)
@@ -519,34 +515,44 @@ def propose_dt(
     return dt_final, new_controller_state
 
 
-# Order of the error estimate for each IntegratorType value
-# (moljax.core.stepping.IntegratorType). Plain ints for the same reason as
+# Power of h in the local error estimate supplied to the controller for each
+# IntegratorType value (moljax.core.stepping.IntegratorType). This is one
+# larger than a method's order for a step-doubling estimate. For the implicit
+# comparison estimates it is the order of the lower-order method whose defect
+# dominates the difference. Plain ints are used for the same reason as
 # _EXPLICIT_STABILITY_BOUNDARY: stepping.py imports from this module.
 _ERROR_ORDER: dict[int, int] = {
-    0: 1,  # EULER
-    1: 3,  # SSPRK3
-    2: 4,  # RK4
-    3: 1,  # BE
-    4: 2,  # CN
-    5: 2,  # BDF2
-    6: 1,  # IMEX_EULER
-    7: 2,  # IMEX_STRANG
+    0: 2,  # EULER: Euler step doubling, O(h**2)
+    1: 4,  # SSPRK3: SSPRK3 step doubling, O(h**4)
+    2: 5,  # RK4: RK4 step doubling, O(h**5)
+    3: 2,  # BE: CN - BE, dominated by BE's O(h**2) local error
+    4: 2,  # CN: CN - BE, still measuring BE's O(h**2) local error
+    5: 2,  # BDF2: BDF2 - BE, dominated by BE's O(h**2) local error
+    6: 2,  # IMEX_EULER: IMEX Euler step doubling, O(h**2)
+    7: 3,  # IMEX_STRANG: Strang step doubling, O(h**3)
 }
 
 
 def compute_error_order(method: int) -> int:
     """
-    Get the error estimation order for a given method.
+    Get the power of ``h`` in a method's local error estimate.
 
     Each IntegratorType value has an explicit entry. An unknown value
     raises: a default order would give the controller a wrong exponent
     and no message.
 
+    Explicit and IMEX methods use step doubling, so a method of order ``p``
+    supplies an estimate proportional to ``h**(p + 1)``. BE uses the
+    CN--BE difference, while CN and BDF2 compare their second-order solution
+    with BE; all three differences are dominated by BE's ``O(h**2)`` local
+    error. The controller therefore needs ``[2, 4, 5, 2, 2, 2, 2, 3]``, not
+    the methods' convergence orders.
+
     Args:
         method: Integrator type enum value
 
     Returns:
-        Order used for error estimation
+        Power of ``h`` used to scale the error controller
 
     Raises:
         ValueError: If method is not an IntegratorType value.
@@ -567,11 +573,9 @@ def compute_error_order(method: int) -> int:
 # IMEX-Specific CFL Limits
 # =============================================================================
 
+
 def imex_cfl_dt(
-    grid,
-    params: dict[str, Any],
-    cfl_params: CFLParams,
-    dtype: jnp.dtype | None = None
+    grid, params: dict[str, Any], cfl_params: CFLParams, dtype: jnp.dtype | None = None
 ) -> jnp.ndarray:
     """
     Compute CFL-limited time step for IMEX methods.
@@ -598,44 +602,32 @@ def imex_cfl_dt(
     dt = jnp.array(cfl_params.dt_max)
 
     # Advection CFL (still explicit in IMEX)
-    vx = jnp.abs(params.get('vx', 0.0))
-    vy = jnp.abs(params.get('vy', 0.0))
+    vx = jnp.abs(params.get("vx", 0.0))
+    vy = jnp.abs(params.get("vy", 0.0))
     v_max = vx + vy
     dt_adv = lax.cond(
-        v_max > 1e-14,
-        lambda: cfl_params.cfl_advection * dx / v_max,
-        lambda: cfl_params.dt_max
+        v_max > 1e-14, lambda: cfl_params.cfl_advection * dx / v_max, lambda: cfl_params.dt_max
     )
     dt = jnp.minimum(dt, dt_adv)
 
     # Wave/acoustic CFL (still explicit if hyperbolic)
-    K = params.get('K', 0.0)
-    rho = params.get('rho', 1.0)
-    c_wave = params.get('wave_speed', 0.0)
-    c_acoustic = lax.cond(
-        K > 1e-14,
-        lambda: jnp.sqrt(K / rho),
-        lambda: 0.0
-    )
+    K = params.get("K", 0.0)
+    rho = params.get("rho", 1.0)
+    c_wave = params.get("wave_speed", 0.0)
+    c_acoustic = lax.cond(K > 1e-14, lambda: jnp.sqrt(K / rho), lambda: 0.0)
     c = jnp.maximum(c_wave, c_acoustic)
-    dt_wave = lax.cond(
-        c > 1e-14,
-        lambda: cfl_params.cfl_wave * dx / c,
-        lambda: cfl_params.dt_max
-    )
+    dt_wave = lax.cond(c > 1e-14, lambda: cfl_params.cfl_wave * dx / c, lambda: cfl_params.dt_max)
     dt = jnp.minimum(dt, dt_wave)
 
     # Reaction stiffness limit (heuristic)
     # For Gray-Scott: F+k ~ 0.1, so dt ~ 5
     # This is a soft limit; reactions are explicit in IMEX
-    F = params.get('F', 0.0)
-    k = params.get('k', 0.0)
-    r = params.get('r', 0.0)  # For Fisher-KPP
+    F = params.get("F", 0.0)
+    k = params.get("k", 0.0)
+    r = params.get("r", 0.0)  # For Fisher-KPP
     reaction_rate = jnp.maximum(F + k, r)
     dt_react = lax.cond(
-        reaction_rate > 1e-14,
-        lambda: 0.5 / reaction_rate,
-        lambda: cfl_params.dt_max
+        reaction_rate > 1e-14, lambda: 0.5 / reaction_rate, lambda: cfl_params.dt_max
     )
     dt = jnp.minimum(dt, dt_react)
 
@@ -648,10 +640,7 @@ def imex_cfl_dt(
     return dt.astype(dtype)
 
 
-def estimate_reaction_stiffness(
-    state: StateDict,
-    params: dict[str, Any]
-) -> jnp.ndarray:
+def estimate_reaction_stiffness(state: StateDict, params: dict[str, Any]) -> jnp.ndarray:
     """
     Estimate reaction stiffness for dt limiting.
 
@@ -669,20 +658,20 @@ def estimate_reaction_stiffness(
     stiffness = jnp.array(0.0)
 
     # Gray-Scott: |df/du| ~ v^2 + F, |df/dv| ~ 2*u*v + (F+k)
-    if 'F' in params and 'k' in params:
-        F = params['F']
-        k = params['k']
+    if "F" in params and "k" in params:
+        F = params["F"]
+        k = params["k"]
         stiffness = jnp.maximum(stiffness, F + k)
-        if 'u' in state and 'v' in state:
+        if "u" in state and "v" in state:
             # More refined estimate using current state
-            v_max = jnp.max(jnp.abs(state['v']))
-            u_max = jnp.max(jnp.abs(state['u']))
+            v_max = jnp.max(jnp.abs(state["v"]))
+            u_max = jnp.max(jnp.abs(state["u"]))
             stiffness = jnp.maximum(stiffness, v_max**2 + F)
-            stiffness = jnp.maximum(stiffness, 2*u_max*v_max + F + k)
+            stiffness = jnp.maximum(stiffness, 2 * u_max * v_max + F + k)
 
     # Fisher-KPP: |df/du| = r * |1 - 2u| <= r
-    if 'r' in params:
-        stiffness = jnp.maximum(stiffness, params['r'])
+    if "r" in params:
+        stiffness = jnp.maximum(stiffness, params["r"])
 
     return stiffness
 
@@ -698,7 +687,7 @@ def propose_dt_imex(
     cfl_params: CFLParams | None = None,
     pid_params: PIDParams | None = None,
     order: int = 2,
-    accepted: jnp.ndarray | None = None
+    accepted: jnp.ndarray | None = None,
 ) -> tuple[jnp.ndarray, ControllerState]:
     """
     Propose dt for IMEX methods.
@@ -715,7 +704,7 @@ def propose_dt_imex(
         controller_state: Controller state
         cfl_params: CFL parameters
         pid_params: PID parameters
-        order: Method order
+        order: Power of h in this method's local error estimate
         accepted: The integrator's own accept/reject decision; see
             propose_dt. Defaults to err_ratio <= 1.0.
 
@@ -745,11 +734,7 @@ def propose_dt_imex(
         )
         return dt_rej, new_state
 
-    dt_adaptive, new_controller_state = lax.cond(
-        accepted,
-        accepted_dt,
-        rejected_dt
-    )
+    dt_adaptive, new_controller_state = lax.cond(accepted, accepted_dt, rejected_dt)
 
     # Apply IMEX CFL limit (no diffusion constraint), in dt_old's dtype so
     # the loop carry keeps the model's dtype.
