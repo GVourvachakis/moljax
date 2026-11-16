@@ -130,8 +130,10 @@ class FilterParams:
 
     Presets follow PETSc ``src/ts/adapt/impls/dsp/adaptdsp.c`` filterlist.
     See Soderlind (2003), DOI 10.1145/641876.641877, and Soderlind and
-    Wang (2006), DOI 10.1016/j.cam.2005.03.008. The post-rejection growth
-    ceiling applies to the first accepted step after a rejection.
+    Wang (2006), DOI 10.1016/j.cam.2005.03.008. Moljax uses a hard clip
+    between min_factor and max_factor, rather than PETSc's atan limiter.
+    Rejected steps use handle_rejected_step with PIDParams; the optional
+    post-rejection growth ceiling applies to the first accepted step.
     """
 
     b1: float
