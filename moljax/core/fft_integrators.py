@@ -38,6 +38,7 @@ from moljax.core.dt_policy import (
     propose_dt_etd,
     resolve_filter_params,
 )
+from moljax.core.etd_pairs import ERK32ZB, ERK43ZB, pair_step_at
 from moljax.core.fft_operators import FFTLinearOperator
 from moljax.core.jit_kernels import phi1, phi2, phi3
 from moljax.core.model import CompiledDriverCache, state_cache_key, static_cache_key
@@ -644,13 +645,18 @@ def etd_integrate(
 # Adaptive ETD Integration
 # =============================================================================
 
-# Order p of each method that etd_integrate_adaptive can step. ETD2 is not
+# Advancing order p of each adaptive method. ETD2 is not
 # here: it is a multistep method, and a variable step needs a changed
 # formula and its own history for the full step and the half steps.
-_ETD_ADAPTIVE_ORDER = {'etd1': 1, 'etdrk4': 4}
+_ETD_ADAPTIVE_ORDER = {"etd1": 1, "etdrk4": 4, "erk32zb": 3, "erk43zb": 4}
+_ETD_EMBEDDED = {"erk32zb": ERK32ZB, "erk43zb": ERK43ZB}
 
-# The controller gets the order p + _ETD_CONTROLLER_ORDER_OFFSET. The
-# step-doubling estimate is O(dt^(p+1)), so the offset is 1. With the
+# Nominal nonlinear_rhs evaluations per trial; no FSAL reuse across steps.
+ETD_NFE_PER_ATTEMPT = {"etd1": 3, "etdrk4": 12, "erk32zb": 4, "erk43zb": 5}
+
+# The controller gets the estimate's order plus this offset. For doubled
+# methods the estimate is O(dt^(p+1)); for embedded methods it is
+# O(dt^(embedded_order+1)). With the
 # offset 0 (the order p), the controller exponents are too large for ETD1:
 # on the stiff test problem of
 # tests/test_etd_adaptive.py::TestControllerOrder, about half of all
@@ -770,10 +776,14 @@ def _build_etd_adaptive_driver(
     order = _ETD_ADAPTIVE_ORDER[method]
     # Richardson: the error of the two half steps is
     # (y_half2 - y_full) / (2^p - 1) to leading order.
-    richardson = 1.0 / (2.0 ** order - 1.0)
-    # The step-doubling estimate is O(dt^(p+1)), so the controller gets
-    # the order p + 1 (see _ETD_CONTROLLER_ORDER_OFFSET).
-    controller_order = order + _ETD_CONTROLLER_ORDER_OFFSET
+    richardson = 1.0 / (2.0**order - 1.0)
+    # Embedded pairs control the low-order estimate's local defect;
+    # doubled methods control the high-order step's local defect.
+    controller_order = (
+        _ETD_EMBEDDED[method].embedded_order + _ETD_CONTROLLER_ORDER_OFFSET
+        if method in _ETD_EMBEDDED
+        else order + _ETD_CONTROLLER_ORDER_OFFSET
+    )
     max_saves = max_steps // save_every + 2
 
     def run(u0, plan: _TickPlan, dt0):
@@ -810,7 +820,7 @@ def _build_etd_adaptive_driver(
                     + jnp.where(partial_hi, plan.r_hi, 0.0).astype(time_dtype))
 
         def stage_times(k, n, h):
-            """The stage times of one doubled step, each one rounding of its exact value.
+            """The dyadic stage times of one trial, each one rounding of its exact value.
 
             The start and the end are exact tick positions. The other
             times add h/4 or h/2 (exact: h is a float and the factor is a
@@ -924,8 +934,24 @@ def _build_etd_adaptive_driver(
 
         def _step_body(s: _ETDAdaptiveState, n, shortened) -> _ETDAdaptiveState:
             h = step_length(s.k, n)
-            y_full, y_half2 = doubled_step(s.y, s.k, n, h)
-            err = {name: (y_half2[name] - y_full[name]) * richardson for name in names}
+            if method in _ETD_EMBEDDED:
+                tableau = _ETD_EMBEDDED[method]
+                t_a, t_mid, t_b, _, t_q3 = stage_times(s.k, n, h)
+                times = (
+                    (t_a, t_mid, t_q3, t_b)
+                    if method == "erk32zb"
+                    else (t_a, t_a + h / 6, t_mid, t_mid, t_b)
+                )
+                # The existing accept path retains y_half2; for a pair this
+                # slot holds the advancing solution, not a half-step state.
+                y_half2, y_full = pair_step_at(
+                    s.y, times, h.astype(compute_dtype), linear_ops, nonlinear_rhs, tableau
+                )
+                y_full, y_half2 = to_field_dtypes(y_full), to_field_dtypes(y_half2)
+                err = {name: y_half2[name] - y_full[name] for name in names}
+            else:
+                y_full, y_half2 = doubled_step(s.y, s.k, n, h)
+                err = {name: (y_half2[name] - y_full[name]) * richardson for name in names}
 
             finite = is_finite(y_full) & is_finite(y_half2)
             err_ratio = scaled_error_norm_interior(err, y_half2, pid_params.atol, pid_params.rtol)
@@ -1106,7 +1132,7 @@ def _etd_tick_plan(t0, t_end, dt0, method, rhs_uses_time, compute_dtype,
     includes it.
 
     A step of n ticks is resolved when n >= m (m = 2 for ETD1 and 4 for
-    ETDRK4): its stage times are then distinct, because each is one
+    ETDRK4 or ERK32ZB): its stage times are then distinct, because each is one
     rounding of an exact value and adjacent exact values differ by more
     than G (or are exact). For an elapsed grid there is no resolution
     limit: the smallest step is one tick.
@@ -1338,7 +1364,7 @@ def etd_integrate_adaptive(
     dt0: float,
     linear_ops: dict[str, FFTLinearOperator],
     nonlinear_rhs: Callable[[StateDict, float], StateDict],
-    method: str = 'etdrk4',
+    method: str = "etdrk4",
     pid_params: PIDParams | None = None,
     max_steps: int = 10000,
     save_every: int = 1,
@@ -1346,19 +1372,18 @@ def etd_integrate_adaptive(
     rhs_uses_time: bool = True,
     controller: None | str | FilterParams = None,
 ) -> ETDAdaptiveResult:
-    """Integrate u_t = L*u + N(u) with an adaptive time step (ETD1 or ETDRK4).
+    """Integrate u_t = L*u + N(u) with an adaptive ETD or embedded ERK step.
 
     The driver is a lax.while_loop. It works on interior-only states with
     the same linear_ops and nonlinear_rhs as etd_integrate, etd1_step and
     etdrk4_step. It does not use moljax.core.stepping.adaptive_integrate,
     which works on MOLModel states with ghost cells.
 
-    Error estimate: step doubling. Each attempt takes one step of size dt
-    (y_full) and two steps of size dt/2 (y_half2). The error estimate is
-    (y_half2 - y_full) / (2^p - 1), with p = 1 for ETD1 and p = 4 for
-    ETDRK4. This is the Richardson estimate of the error of y_half2, so a
-    tolerance has the same meaning for each order. An accepted step keeps
-    y_half2 (no extrapolation).
+    ETD1 and ETDRK4 use step doubling: one full and two half steps per
+    attempt, with the Richardson estimate (y_half2 - y_full)/(2^p - 1).
+    An accepted step keeps y_half2. ERK32ZB and ERK43ZB take one
+    embedded trial and accept the advancing (higher-order) solution;
+    their error estimate is the difference from the embedded solution.
 
     CAUTION: The step-doubling estimators of moljax.core.stepping
     (estimate_error_doubling and estimate_error_imex_doubling) keep the
@@ -1368,13 +1393,13 @@ def etd_integrate_adaptive(
     Time-step policy "ETD" (see moljax.core.dt_policy.propose_dt_etd):
     there is no CFL limit, because exp(dt*L) is exact. The PI controller
     of PIDParams, or an opt-in filter, sets dt in [dt_min, dt_max]. The
-    controller receives the order p + 1 of the local error estimate. The driver
+    controller receives the power of dt in the local error estimate. The driver
     rejects a step that has non-finite values and cuts dt for the next
     attempt. The run stops with StatusCode.DT_TOO_SMALL only when a trial
     at dt_min is also rejected.
 
-    The cost of each attempt is three steps (for ETDRK4, 12 evaluations
-    of nonlinear_rhs against 4).
+    Nominal nonlinear_rhs evaluations per attempt are listed in
+    ETD_NFE_PER_ATTEMPT; embedded pairs need one step, without FSAL reuse.
 
     Args:
         u0: Initial state (interior values, no ghost cells)
@@ -1382,7 +1407,7 @@ def etd_integrate_adaptive(
         dt0: Initial time step. The driver clamps it to [dt_min, dt_max].
         linear_ops: Dict mapping field name to FFTLinearOperator
         nonlinear_rhs: Function computing N(u, t)
-        method: 'etd1' or 'etdrk4'
+        method: 'etd1', 'etdrk4', 'erk32zb', or 'erk43zb'
         pid_params: Controller parameters, tolerances and dt limits
             (default PIDParams())
         max_steps: Maximum number of accepted steps. It also sets the size
@@ -1393,9 +1418,10 @@ def etd_integrate_adaptive(
             step before the run stops with StatusCode.MAX_ATTEMPTS_REACHED.
         rhs_uses_time: True (the safe default) if nonlinear_rhs can read
             t. The driver then checks the stage times of each step (see
-            the CAUTION below). Set False only for an autonomous
-            nonlinear_rhs (one that does not read t); the driver then
-            does not make the check.
+            the CAUTION below). ERK43ZB's 1/6 stage is outside the tick
+            clock's one-rounding guarantee and requires False. Set False
+            only for an autonomous nonlinear_rhs (one that does not read
+            t); the driver then does not make the check.
         controller: Optional digital-filter preset name or FilterParams.
             None retains the shipped PI controller.
 
@@ -1442,8 +1468,10 @@ def etd_integrate_adaptive(
 
         A nonlinear_rhs that reads t (rhs_uses_time=True, the default) gets
         stage times that are each one rounding of their exact values. A
-        doubled step needs at least 2 ticks (ETD1) or 4 ticks (ETDRK4), so
-        that its stage times are distinct. The step with a partial tick is
+        time-dependent trial needs at least 2 ticks (ETD1) or 4 ticks
+        (ETDRK4 and ERK32ZB), so its stage times are distinct. ERK43ZB
+        requires an autonomous RHS because its 1/6 stage is off this
+        lattice. The step with a partial tick is
         resolved against the finer spacing near its endpoint.
         Before compilation, the driver raises ValueError if the span, dt_max
         or dt0 is below that. If the controller later proposes a smaller
@@ -1464,8 +1492,11 @@ def etd_integrate_adaptive(
         once to float32.
     """
     if method not in _ETD_ADAPTIVE_ORDER:
+        raise ValueError(f"Unknown method: {method}. Use one of {sorted(_ETD_ADAPTIVE_ORDER)}")
+    if method == "erk43zb" and rhs_uses_time:
         raise ValueError(
-            f"Unknown method: {method}. Use one of {sorted(_ETD_ADAPTIVE_ORDER)}"
+            "ERK43ZB has a 1/6 stage outside the tick clock's one-rounding "
+            "guarantee; use rhs_uses_time=False only for an autonomous RHS"
         )
     if save_every < 1:
         raise ValueError(f"save_every must be at least 1, got {save_every}")
