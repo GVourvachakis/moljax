@@ -18,6 +18,7 @@ from moljax.core.dt_policy import PIDParams
 from moljax.core.etd_pairs import ERK32ZB, ERK43ZB, pair_step_at
 from moljax.core.fft_operators import DiffusionOperator
 from moljax.core.grid import Grid2D
+from moljax.core.jit_kernels import phi1, phi2, phi3
 
 
 @cache
@@ -251,6 +252,86 @@ def _fixed_pair(y, op, rhs, tableau, steps, t_end):
         times = tuple((i + float(c)) * h for c in tableau.c)
         y, _ = pair_step_at(y, times, h, op, rhs, tableau)
     return y
+
+
+def _pair_step_before_stage_reuse(y, stage_times, h, linear_ops, nonlinear_rhs, tableau):
+    """Original D2 algorithm, retained as the bitwise reference for stage reuse."""
+    phi_functions = {1: phi1, 2: phi2, 3: phi3}
+    fields = {}
+    for name, value in y.items():
+        op = linear_ops.get(name)
+        if op is None:
+            forward = inverse = lambda array: array
+            z = jnp.asarray(0, dtype=value.dtype)
+        else:
+            forward, inverse = fi._fft_pair(op, value)
+            z = h * op.eigenvalues
+        expressions = [expression for row in tableau.a for expression in row]
+        expressions.extend(tableau.b)
+        expressions.extend(tableau.bhat)
+        keys = {(k, arg) for expression in expressions for _, k, arg in expression}
+        phis = {(k, arg): phi_functions[k](float(arg) * z) for k, arg in keys}
+
+        def weight(expression, phis=phis):
+            return sum(float(coef) * phis[k, arg] for coef, k, arg in expression)
+
+        fields[name] = (forward, inverse, z, forward(value), weight)
+
+    n_hat = []
+    for i, c in enumerate(tableau.c):
+        if i == 0:
+            stage = y
+        else:
+            stage = {}
+            for name, (_, inverse, z, y_hat, weight) in fields.items():
+                hat = jnp.exp(float(c) * z) * y_hat + h * sum(
+                    weight(tableau.a[i][j]) * n_hat[j][name] for j in range(i)
+                )
+                stage[name] = inverse(hat)
+        n = nonlinear_rhs(stage, stage_times[i])
+        n_hat.append({name: fields[name][0](n[name]) for name in fields})
+
+    results = []
+    for weights in (tableau.b, tableau.bhat):
+        result = {}
+        for name, (_, inverse, z, y_hat, weight) in fields.items():
+            hat = jnp.exp(z) * y_hat + h * sum(
+                weight(weights[i]) * n_hat[i][name] for i in range(len(weights))
+            )
+            result[name] = inverse(hat)
+        results.append(result)
+    return results[0], results[1]
+
+
+@pytest.mark.parametrize("tableau", [ERK32ZB, ERK43ZB], ids=lambda t: t.name)
+@pytest.mark.parametrize("is_rfft", [False, True], ids=["fft2", "rfft2"])
+def test_stage_reuse_bitwise_matches_original(tableau, is_rfft):
+    ky = np.fft.fftfreq(8)[:, None]
+    kx = (np.fft.rfftfreq(8) if is_rfft else np.fft.fftfreq(8))[None, :]
+    spectrum = jnp.asarray(-0.02 * (kx**2 + ky**2))
+
+    class Op:
+        eigenvalues = spectrum
+        _is_rfft = is_rfft
+
+    ops = {"u": Op(), "v": Op()}
+
+    def rhs(state, t):
+        return {
+            "u": -0.1 * state["u"] + 0.03 * state["v"] ** 2 + t,
+            "v": 0.02 * state["u"] * state["v"] - 0.15 * state["v"] - t,
+        }
+
+    for seed in range(3):
+        rng = np.random.default_rng(seed)
+        state = {name: jnp.asarray(rng.normal(size=(8, 8))) for name in ("u", "v")}
+        h = 0.01 * (seed + 1)
+        times = tuple(float(c) * h for c in tableau.c)
+        expected = _pair_step_before_stage_reuse(state, times, h, ops, rhs, tableau)
+        actual = pair_step_at(state, times, h, ops, rhs, tableau)
+        for expected_state, actual_state in zip(expected, actual, strict=True):
+            for name in state:
+                np.testing.assert_array_equal(actual_state[name], expected_state[name])
 
 
 def test_manufactured_2d_order_and_estimator():
