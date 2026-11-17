@@ -4,9 +4,8 @@ Configuration ``method_order`` (A) reproduces the inherited exponent and
 Newton-growth policy. ``estimator_order`` (B) changes only the error exponent;
 ``estimator_order_cap`` (B+cap) additionally prevents Newton diagnostics from
 enlarging the PI proposal while retaining failed-solve shrinkage. Work is
-counted in right-hand-side evaluations. ``NKStats`` does not expose spent
-Krylov iterations, so the JSON keeps its configured budget separate from
-Newton iterations and does not present it as measured work.
+counted in right-hand-side evaluations. ``NKStats.lin_iters`` also records
+the Krylov iterations used since PR #9.
 """
 
 from __future__ import annotations
@@ -85,7 +84,7 @@ class Result:
     rejection_fraction: float
     rhs_evaluations: int
     newton_iterations: int
-    gmres_budget: int
+    krylov_iterations: int
     final_error: float
     t_final: float
     success: bool
@@ -710,9 +709,9 @@ def main():
         },
         "tolerances": tolerances,
         "work_metric": "right-hand-side evaluations",
-        "gmres_budget_note": (
-            "gmres_budget is NKStats.lin_iters: the configured Krylov budget, "
-            "not iterations spent; Newton iterations are reported separately."
+        "krylov_iterations_note": (
+            "krylov_iterations is NKStats.lin_iters; since PR #9 (88c3f58) "
+            "it counts the Krylov iterations used"
         ),
         "work_precision_results": [asdict(result) for result in work_precision_results],
         "robustness_results": [asdict(result) for result in robustness_results],
