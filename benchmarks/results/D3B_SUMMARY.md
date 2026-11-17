@@ -240,6 +240,20 @@ Source: `d3b_fixed_pairs.json`, `/ladders` (every row).
 | P5/128 | E0b | F | 1e-03 | 0.66319 | 0.93649 | 5.4022 | 3.3551 | 3.3551 | -4.4e-16 |
 Source: `d3b_fixed_pairs.json`, `/decomposition` (every row).
 
+## Graded two-factor view on P5 (exploratory, post hoc)
+
+On P5 the uniform-baseline factors above mix two effects. With uniform steps both F and Z43 are limited by the noisy initial layer (observed orders 0.75–1.4 on the finest shared rungs), and their same-step error ratio is only 1.1–1.4, so the uniform "control" factor also carries the grading of that layer. With the γ = 4 graded ladders as the baseline, R(E0b vs F_g) = [F_g/Z43_g] × [Z43_g/E0b]:
+Source: `d3b_graded_decomposition.json`, `/ladders`.
+
+| Case | Target | Method F_g/Z43_g | Control Z43_g/E0b | Product | Target status |
+| --- | ---: | ---: | ---: | ---: | --- |
+| P5/64 | 1e-05 | 3.5 | 0.97 | 3.4 | self-convergence only |
+| P5/128 | 1e-05 | 3.0 | 0.96 | 2.8 | confirmed |
+Source: `d3b_graded_decomposition.json`, `/decomposition`.
+
+On the fully valid graded levels the same-mesh error ratio F_g/Z43_g is 28–29×; including reference-limited levels gives 26–44×. Reading: on P5, adaptive ERK43ZB's advantage over the graded ETDRK4 oracle comes from the method. Once the layer is graded, fixed-step ERK43ZB is about 3.0–3.5× cheaper than ETDRK4 at 1e-5, and adaptive ERK43ZB is about as efficient as its own graded oracle. Why ETDRK4 is weaker here is not established. This view changes no D3 verdict.
+Source: `d3b_graded_decomposition.json`, `/ladders` and `/decomposition`.
+
 ## Missing matched-target cells
 
 | Case | Pair | Baseline | Target | Unavailable factor inputs and reason |

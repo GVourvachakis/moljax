@@ -1,0 +1,450 @@
+{
+  "provenance": {
+    "label": "exploratory, post hoc",
+    "input_sha256": {
+      "d3_work_precision.json": "cd6a166980c436df5d6abdf1cc4fd10a7e85914b04ba49b97a65d77a349e2910",
+      "d3b_fixed_pairs.json": "8e24c53106eb47dce9d6c08eb5c3b4df73c06df557d4d05f42c061701b0f6b42"
+    },
+    "base_commit": "009fe911824798a679c30e3120e3e9e999c69572",
+    "python": "3.12.3",
+    "jax": "0.11.2",
+    "jaxlib": "0.11.2",
+    "analysis_helper": "benchmarks.d3_work_precision_analysis.interpolate"
+  },
+  "decomposition": [
+    {
+      "case": "P5/64",
+      "target": 1e-05,
+      "costs_NFE": {
+        "F_g": 84186.89595064816,
+        "Z43_g": 24208.435602315032,
+        "E0b": 24983.287361025406
+      },
+      "method": 3.477585141544522,
+      "control": 0.9689851960827556,
+      "product": 3.3697285202739957,
+      "R_direct": 3.3697285202739957,
+      "target_status": "self-convergence only"
+    },
+    {
+      "case": "P5/128",
+      "target": 1e-05,
+      "costs_NFE": {
+        "F_g": 69448.99540032429,
+        "Z43_g": 23458.592736596373,
+        "E0b": 24503.427527603384
+      },
+      "method": 2.96049282154854,
+      "control": 0.9573596473460705,
+      "product": 2.834256363608284,
+      "R_direct": 2.834256363608284,
+      "target_status": "confirmed"
+    }
+  ],
+  "ladders": [
+    {
+      "case": "P5/64",
+      "mesh": "graded",
+      "level": 0,
+      "steps": 4608,
+      "error_ratio_F_over_Z43": 27.825195384985165,
+      "validity": "valid",
+      "F_validity": "valid",
+      "Z43_validity": "valid"
+    },
+    {
+      "case": "P5/64",
+      "mesh": "graded",
+      "level": 1,
+      "steps": 9216,
+      "error_ratio_F_over_Z43": 26.175249134234736,
+      "validity": "valid, reference-limited",
+      "F_validity": "valid",
+      "Z43_validity": "valid, reference-limited"
+    },
+    {
+      "case": "P5/64",
+      "mesh": "graded",
+      "level": 2,
+      "steps": 18432,
+      "error_ratio_F_over_Z43": 43.5750979717812,
+      "validity": "valid, reference-limited",
+      "F_validity": "valid",
+      "Z43_validity": "valid, reference-limited"
+    },
+    {
+      "case": "P5/64",
+      "mesh": "graded",
+      "level": 3,
+      "steps": 36864,
+      "error_ratio_F_over_Z43": 63.52827433945557,
+      "validity": "indeterminate",
+      "F_validity": "valid, reference-limited",
+      "Z43_validity": "indeterminate"
+    },
+    {
+      "case": "P5/64",
+      "mesh": "graded",
+      "level": 4,
+      "steps": 73728,
+      "error_ratio_F_over_Z43": 12.141518404074121,
+      "validity": "indeterminate",
+      "F_validity": "indeterminate",
+      "Z43_validity": "indeterminate"
+    },
+    {
+      "case": "P5/64",
+      "mesh": "uniform",
+      "steps": 2048,
+      "error_ratio_F_over_Z43": 1.1328470250064762,
+      "observed_order_F": 6.130319723283271,
+      "observed_order_Z43": null,
+      "validity": "valid",
+      "F_validity": "valid",
+      "Z43_validity": "valid"
+    },
+    {
+      "case": "P5/64",
+      "mesh": "uniform",
+      "steps": 4096,
+      "error_ratio_F_over_Z43": 1.2641458581919525,
+      "observed_order_F": 1.468339424993307,
+      "observed_order_Z43": 1.6265492987379522,
+      "validity": "valid",
+      "F_validity": "valid",
+      "Z43_validity": "valid"
+    },
+    {
+      "case": "P5/64",
+      "mesh": "uniform",
+      "steps": 8192,
+      "error_ratio_F_over_Z43": 1.179133947071531,
+      "observed_order_F": 1.4837718763480146,
+      "observed_order_Z43": 1.3833365585551567,
+      "validity": "valid",
+      "F_validity": "valid",
+      "Z43_validity": "valid"
+    },
+    {
+      "case": "P5/64",
+      "mesh": "uniform",
+      "steps": 16384,
+      "error_ratio_F_over_Z43": 1.0842495467429252,
+      "observed_order_F": 1.3776535120520268,
+      "observed_order_Z43": 1.256622737482453,
+      "validity": "valid",
+      "F_validity": "valid",
+      "Z43_validity": "valid"
+    },
+    {
+      "case": "P5/64",
+      "mesh": "uniform_order",
+      "config": "F",
+      "steps": 1024,
+      "observed_order": null,
+      "validity": "valid"
+    },
+    {
+      "case": "P5/64",
+      "mesh": "uniform_order",
+      "config": "F",
+      "steps": 2048,
+      "observed_order": 6.130319723283271,
+      "validity": "valid"
+    },
+    {
+      "case": "P5/64",
+      "mesh": "uniform_order",
+      "config": "F",
+      "steps": 4096,
+      "observed_order": 1.468339424993307,
+      "validity": "valid"
+    },
+    {
+      "case": "P5/64",
+      "mesh": "uniform_order",
+      "config": "F",
+      "steps": 8192,
+      "observed_order": 1.4837718763480146,
+      "validity": "valid"
+    },
+    {
+      "case": "P5/64",
+      "mesh": "uniform_order",
+      "config": "F",
+      "steps": 16384,
+      "observed_order": 1.3776535120520268,
+      "validity": "valid"
+    },
+    {
+      "case": "P5/64",
+      "mesh": "uniform_order",
+      "config": "Z43",
+      "steps": 2048,
+      "observed_order": null,
+      "validity": "valid"
+    },
+    {
+      "case": "P5/64",
+      "mesh": "uniform_order",
+      "config": "Z43",
+      "steps": 4096,
+      "observed_order": 1.6265492987379522,
+      "validity": "valid"
+    },
+    {
+      "case": "P5/64",
+      "mesh": "uniform_order",
+      "config": "Z43",
+      "steps": 8192,
+      "observed_order": 1.3833365585551567,
+      "validity": "valid"
+    },
+    {
+      "case": "P5/64",
+      "mesh": "uniform_order",
+      "config": "Z43",
+      "steps": 16384,
+      "observed_order": 1.256622737482453,
+      "validity": "valid"
+    },
+    {
+      "case": "P5/64",
+      "mesh": "uniform_order",
+      "config": "Z43",
+      "steps": 32768,
+      "observed_order": 1.303074531867786,
+      "validity": "valid"
+    },
+    {
+      "case": "P5/64",
+      "mesh": "uniform_order",
+      "config": "Z43",
+      "steps": 65536,
+      "observed_order": 1.5123265114597209,
+      "validity": "valid"
+    },
+    {
+      "case": "P5/64",
+      "mesh": "uniform_order",
+      "config": "Z43",
+      "steps": 131072,
+      "observed_order": 2.082564017721134,
+      "validity": "valid"
+    },
+    {
+      "case": "P5/64",
+      "mesh": "uniform_order",
+      "config": "Z43",
+      "steps": 262144,
+      "observed_order": 2.9006673554964264,
+      "validity": "valid, reference-limited"
+    },
+    {
+      "case": "P5/128",
+      "mesh": "graded",
+      "level": 0,
+      "steps": 4608,
+      "error_ratio_F_over_Z43": 29.045804222492496,
+      "validity": "valid",
+      "F_validity": "valid",
+      "Z43_validity": "valid"
+    },
+    {
+      "case": "P5/128",
+      "mesh": "graded",
+      "level": 1,
+      "steps": 9216,
+      "error_ratio_F_over_Z43": 39.594610519901835,
+      "validity": "valid, reference-limited",
+      "F_validity": "valid",
+      "Z43_validity": "valid, reference-limited"
+    },
+    {
+      "case": "P5/128",
+      "mesh": "graded",
+      "level": 2,
+      "steps": 18432,
+      "error_ratio_F_over_Z43": 51.364889590765344,
+      "validity": "indeterminate",
+      "F_validity": "valid",
+      "Z43_validity": "indeterminate"
+    },
+    {
+      "case": "P5/128",
+      "mesh": "graded",
+      "level": 3,
+      "steps": 36864,
+      "error_ratio_F_over_Z43": 17.475270337379563,
+      "validity": "indeterminate",
+      "F_validity": "valid, reference-limited",
+      "Z43_validity": "indeterminate"
+    },
+    {
+      "case": "P5/128",
+      "mesh": "graded",
+      "level": 4,
+      "steps": 73728,
+      "error_ratio_F_over_Z43": 1.8456439583681774,
+      "validity": "indeterminate",
+      "F_validity": "indeterminate",
+      "Z43_validity": "indeterminate"
+    },
+    {
+      "case": "P5/128",
+      "mesh": "uniform",
+      "steps": 2048,
+      "error_ratio_F_over_Z43": 1.2326290981496848,
+      "observed_order_F": 3.952223580399746,
+      "observed_order_Z43": null,
+      "validity": "valid",
+      "F_validity": "valid",
+      "Z43_validity": "valid"
+    },
+    {
+      "case": "P5/128",
+      "mesh": "uniform",
+      "steps": 4096,
+      "error_ratio_F_over_Z43": 1.4212112624869278,
+      "observed_order_F": 2.7231033905313566,
+      "observed_order_Z43": 2.928485663387043,
+      "validity": "valid",
+      "F_validity": "valid",
+      "Z43_validity": "valid"
+    },
+    {
+      "case": "P5/128",
+      "mesh": "uniform",
+      "steps": 8192,
+      "error_ratio_F_over_Z43": 1.2586051300700047,
+      "observed_order_F": 1.914763409404742,
+      "observed_order_Z43": 1.7394681112954626,
+      "validity": "valid",
+      "F_validity": "valid",
+      "Z43_validity": "valid"
+    },
+    {
+      "case": "P5/128",
+      "mesh": "uniform",
+      "steps": 16384,
+      "error_ratio_F_over_Z43": 1.0839557612089186,
+      "observed_order_F": 0.9691982076545822,
+      "observed_order_Z43": 0.7536783573062794,
+      "validity": "valid",
+      "F_validity": "valid",
+      "Z43_validity": "valid"
+    },
+    {
+      "case": "P5/128",
+      "mesh": "uniform_order",
+      "config": "F",
+      "steps": 1024,
+      "observed_order": null,
+      "validity": "valid"
+    },
+    {
+      "case": "P5/128",
+      "mesh": "uniform_order",
+      "config": "F",
+      "steps": 2048,
+      "observed_order": 3.952223580399746,
+      "validity": "valid"
+    },
+    {
+      "case": "P5/128",
+      "mesh": "uniform_order",
+      "config": "F",
+      "steps": 4096,
+      "observed_order": 2.7231033905313566,
+      "validity": "valid"
+    },
+    {
+      "case": "P5/128",
+      "mesh": "uniform_order",
+      "config": "F",
+      "steps": 8192,
+      "observed_order": 1.914763409404742,
+      "validity": "valid"
+    },
+    {
+      "case": "P5/128",
+      "mesh": "uniform_order",
+      "config": "F",
+      "steps": 16384,
+      "observed_order": 0.9691982076545822,
+      "validity": "valid"
+    },
+    {
+      "case": "P5/128",
+      "mesh": "uniform_order",
+      "config": "Z43",
+      "steps": 2048,
+      "observed_order": null,
+      "validity": "valid"
+    },
+    {
+      "case": "P5/128",
+      "mesh": "uniform_order",
+      "config": "Z43",
+      "steps": 4096,
+      "observed_order": 2.928485663387043,
+      "validity": "valid"
+    },
+    {
+      "case": "P5/128",
+      "mesh": "uniform_order",
+      "config": "Z43",
+      "steps": 8192,
+      "observed_order": 1.7394681112954626,
+      "validity": "valid"
+    },
+    {
+      "case": "P5/128",
+      "mesh": "uniform_order",
+      "config": "Z43",
+      "steps": 16384,
+      "observed_order": 0.7536783573062794,
+      "validity": "valid"
+    },
+    {
+      "case": "P5/128",
+      "mesh": "uniform_order",
+      "config": "Z43",
+      "steps": 32768,
+      "observed_order": 0.8019876166532283,
+      "validity": "valid"
+    },
+    {
+      "case": "P5/128",
+      "mesh": "uniform_order",
+      "config": "Z43",
+      "steps": 65536,
+      "observed_order": 1.0594485701833265,
+      "validity": "valid"
+    },
+    {
+      "case": "P5/128",
+      "mesh": "uniform_order",
+      "config": "Z43",
+      "steps": 131072,
+      "observed_order": 1.2922788020832328,
+      "validity": "valid"
+    },
+    {
+      "case": "P5/128",
+      "mesh": "uniform_order",
+      "config": "Z43",
+      "steps": 262144,
+      "observed_order": 1.6203073639066459,
+      "validity": "valid"
+    },
+    {
+      "case": "P5/128",
+      "mesh": "uniform_order",
+      "config": "Z43",
+      "steps": 524288,
+      "observed_order": 2.1608299246226257,
+      "validity": "valid, reference-limited"
+    }
+  ]
+}
