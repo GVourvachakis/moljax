@@ -84,6 +84,8 @@ All notable changes to moljax are documented here.
   of the controller. The library drivers are measured by
   `benchmarks/benchmark_adaptive_gray_scott.py`; its results are in
   `benchmarks/results/adaptive_gray_scott.json` and `.csv`.
+  `benchmarks/results/controller_work_precision.csv` lists one row for each
+  problem, method, configuration and tolerance.
 - **`integrate_fixed_dt(..., return_stats=True)` returns a `FixedStepStats`**
   with the Newton iteration total and the Krylov iteration total of the run.
   The default return value does not change.

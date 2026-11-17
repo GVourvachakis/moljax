@@ -11,6 +11,7 @@ the Krylov iterations used since PR #9.
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import math
 import platform
@@ -723,6 +724,19 @@ def main():
         "per_method_median_matched_error_nfe": per_method_summary(matched_rows),
     }
     args.output.write_text(json.dumps(report, indent=2) + "\n")
+    columns = (
+        "study problem method config tolerance accepted rejected "
+        "rejection_fraction rhs_evaluations newton_iterations krylov_iterations "
+        "final_error t_final success"
+    ).split()
+    with args.output.with_suffix(".csv").open("w", newline="") as stream:
+        writer = csv.DictWriter(stream, fieldnames=columns, lineterminator="\n")
+        writer.writeheader()
+        for study, results in (
+            ("work_precision", work_precision_results),
+            ("robustness", robustness_results),
+        ):
+            writer.writerows({"study": study, **asdict(result)} for result in results)
     plot_results(work_precision_results + robustness_results, args.output.parent)
 
 
