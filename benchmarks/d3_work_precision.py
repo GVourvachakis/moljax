@@ -1,0 +1,664 @@
+"""Self-contained CPU work-precision benchmark for adaptive exponential integrators.
+
+Run ``JAX_PLATFORMS=cpu JAX_ENABLE_X64=true PYTHONPATH=. .venv/bin/python benchmarks/d3_work_precision.py all``.
+Use ``--work-dir`` to resume checkpoints in a chosen directory.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import math
+import os
+import platform
+import subprocess
+import sys
+import tempfile
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+import jax
+
+jax.config.update("jax_enable_x64", True)
+import jax.numpy as jnp
+import jaxlib
+import numpy as np
+import scipy
+
+import moljax
+from moljax.core.dt_policy import PIDParams
+from moljax.core.etd_pairs import ERK32ZB, ERK43ZB, pair_step_at
+from moljax.core.fft_integrators import _etdrk4_step_at, etd_integrate, etd_integrate_adaptive
+from moljax.core.fft_operators import DiffusionOperator
+from moljax.core.grid import Grid2D
+from moljax.core.state import scaled_error_norm_interior
+from moljax.core.utils import StatusCode
+from moljax.experimental.brusselator_conditioning import (
+    HOPF_REGIME,
+    TURING_REGIME,
+    _initial_state,
+    build_brusselator_system,
+)
+
+ROOT = Path(__file__).resolve().parents[1]
+REFS = ROOT / "benchmarks/results/d3_references.npz"
+REF_MANIFEST = ROOT / "benchmarks/results/d3_references.json"
+CASES = (("P1", 64), ("P2", 128), ("P2", 256), ("P3", 64), ("P4", 64), ("P5", 64), ("P5", 128))
+RTOLS = (1e-3, 3e-4, 1e-4, 3e-5, 1e-5, 3e-6, 1e-6, 3e-7, 1e-7, 3e-8, 1e-8)
+CONFIGS = ("S0", "sensitivity", "E0a", "E0b")
+NFE = {"S0": 12, "sensitivity": 12, "E0a": 4, "E0b": 5}
+TRANSFORMS_PER_FIELD = {"S0": 27, "sensitivity": 27, "E0a": 9, "E0b": 11}
+METHODS = {"E0a": "erk32zb", "E0b": "erk43zb"}
+FIXED_STEPS = {
+    ("P1", 64): (4, 8, 16, 32, 64, 128),
+    ("P2", 128): (4, 8, 16, 32, 64, 128, 256),
+    ("P2", 256): (8, 16, 32, 64, 128, 256),
+    ("P3", 64): (16, 32, 64, 128, 256, 512, 1024, 2048),
+    ("P4", 64): (16, 32, 64, 128, 256, 512, 1024),
+    ("P5", 64): (128, 256, 512, 1024, 2048, 4096, 8192, 16384),
+    ("P5", 128): (128, 256, 512, 1024, 2048, 4096, 8192, 16384),
+}
+MEMORY_LIMIT = 1.5e9
+WORK_DIR: Path | None = None
+
+
+def check_environment(strict=False):
+    expected = ROOT / "moljax/__init__.py"
+    if Path(moljax.__file__).resolve() != expected.resolve():
+        raise RuntimeError("moljax imported outside the benchmark checkout")
+    if jax.default_backend() != "cpu":
+        raise RuntimeError("D3 requires the CPU backend")
+    if strict and (
+        (jax.__version__, jaxlib.__version__) != ("0.11.2", "0.11.2")
+        or not jax.config.jax_enable_x64
+    ):
+        raise RuntimeError("strict environment requires JAX/jaxlib 0.11.2 and x64")
+    return {
+        "git_commit": subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+        ).strip(),
+        "script_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        "python": platform.python_version(),
+        "jax": jax.__version__,
+        "jaxlib": jaxlib.__version__,
+        "numpy": np.__version__,
+        "scipy": scipy.__version__,
+        "backend": jax.default_backend(),
+        "x64": bool(jax.config.jax_enable_x64),
+        "recorded_utc": datetime.now(timezone.utc).isoformat(),
+        "host_label": "laptop CPU (AMD Ryzen 7 5800H)",
+    }
+
+
+def verify_references():
+    manifest = json.loads(REF_MANIFEST.read_text())
+    with np.load(REFS) as archive:
+        for case, detail in manifest["cases"].items():
+            for field, expected in detail["arrays"].items():
+                actual = hashlib.sha256(archive[f"{case}_{field}"].tobytes()).hexdigest()
+                if actual != expected:
+                    raise RuntimeError(f"reference checksum mismatch: {case}/{field}")
+
+
+def reference(name, n, exact, final):
+    if exact is not None:
+        return {key: np.asarray(value) for key, value in exact(final).items()}
+    with np.load(REFS) as archive:
+        return {key: archive[f"{name}_{n}_{key}"] for key in ("u", "v")}
+
+
+def error_summary(state, ref, name, n):
+    norms = {key: float(np.max(np.abs(value))) for key, value in ref.items()}
+    errors = {key: float(np.max(np.abs(np.asarray(state[key]) - ref[key]))) for key in ref}
+    absolute = max(errors.values())
+    relative = {key: errors[key] / norms[key] for key in ref}
+    if name == "P1":
+        validity = "valid (exact)"
+    else:
+        manifest = json.loads(REF_MANIFEST.read_text())
+        est = manifest["cases"][f"{name}_{n}"]["est_err"]
+        validity = (
+            "valid"
+            if absolute >= 100 * est
+            else "valid, reference-limited"
+            if absolute >= 10 * est
+            else "indeterminate"
+        )
+    return {
+        "error_inf_absolute": absolute,
+        "error_inf_per_field": errors,
+        "error_inf_relative_per_field": relative,
+        "error_inf_relative": max(relative.values()),
+        "validity": validity,
+    }
+
+
+def setup(name, n):
+    """D0 problem definitions: FD DiffusionOperator and the paper IC recipes."""
+    if name == "P1":
+        length, final, ds = 1.0, 2.0, {"u": 0.01}
+    elif name == "P2":
+        length, final, ds = 1.0, 100.0, {"u": 2e-5, "v": 1e-5}
+    elif name == "P3":
+        length, final, ds = 5.0, 200.0, {"u": 0.01, "v": 0.1}
+    elif name == "P4":
+        length, final, ds = 5.0, 20.0, {"u": 0.01, "v": 0.02}
+    elif name == "P5":
+        length, final, ds = 1.0, 1.0, {"u": 1.0, "v": 40.0}
+    else:
+        raise ValueError(name)
+    grid = Grid2D.uniform(n, n, 0.0, length, 0.0, length)
+    ops = {key: DiffusionOperator(grid, d, dtype=jnp.float64) for key, d in ds.items()}
+    if name == "P1":
+        coords = np.arange(n) * length / n
+        s = jnp.asarray(np.outer(np.sin(2 * np.pi * coords), np.sin(2 * np.pi * coords)))
+        ls = ops["u"].matvec(s)
+        eigenvalue = float(jnp.vdot(s, ls) / jnp.vdot(s, s))
+        assert float(jnp.max(jnp.abs(ls - eigenvalue * s))) / float(jnp.max(jnp.abs(ls))) < 1e-12
+
+        def exact(t):
+            return {"u": (1 + 0.5 * jnp.cos(t)) * s}
+
+        def rhs(state, t):
+            target = exact(t)["u"]
+            forcing = -0.5 * jnp.sin(t) * s - eigenvalue * target + target**3
+            return {"u": -(state["u"] ** 3) + forcing}
+
+        y0 = exact(0.0)
+    elif name == "P2":
+        np.random.seed(42)
+        u = np.ones((n, n)) - 0.5 * np.random.rand(n, n) * 0.1
+        v = 0.25 * np.ones((n, n)) + 0.5 * np.random.rand(n, n) * 0.1
+        cx, cy = n // 2, n // 2
+        u[cx - 10 : cx + 10, cy - 10 : cy + 10] = 0.5
+        v[cx - 10 : cx + 10, cy - 10 : cy + 10] = 0.25
+        y0 = {"u": jnp.array(u), "v": jnp.array(v)}
+
+        def rhs(y, t):
+            uvv = y["u"] * y["v"] ** 2
+            return {"u": -uvv + 0.035 * (1 - y["u"]), "v": uvv - 0.1 * y["v"]}
+
+        exact = None
+    elif name in ("P3", "P4"):
+        regime = TURING_REGIME if name == "P3" else HOPF_REGIME
+        model, _, _ = build_brusselator_system(regime, grid)
+        seed = 20260822 + (name == "P3")
+        full = _initial_state(model, regime, 1e-3, seed)
+        iy, ix = grid.interior_slice
+        y0 = {key: value[iy, ix] for key, value in full.items()}
+
+        def rhs(y, t):
+            uv = y["u"] ** 2 * y["v"]
+            return {"u": regime.a - (regime.b + 1) * y["u"] + uv, "v": regime.b * y["u"] - uv}
+
+        exact = None
+    else:
+        np.random.seed(42)
+        u = 1.0 + 0.01 * np.random.randn(n, n)
+        v = 0.9 + 0.01 * np.random.randn(n, n)
+        y0 = {"u": jnp.array(u), "v": jnp.array(v)}
+
+        def rhs(y, t):
+            uv = y["u"] ** 2 * y["v"]
+            return {"u": 1000 * (0.1 - y["u"] + uv), "v": 1000 * (0.9 - uv)}
+
+        exact = None
+    return y0, ops, rhs, exact, final
+
+
+def endpoint_sha(state):
+    digest = hashlib.sha256()
+    for key in sorted(state):
+        array = np.asarray(state[key])
+        digest.update(key.encode())
+        digest.update(str(array.dtype).encode())
+        digest.update(repr(array.shape).encode())
+        digest.update(array.tobytes())
+    return digest.hexdigest()
+
+
+def history_settings(n, n_fields, max_steps):
+    save_every = max(
+        1, math.ceil(max_steps / max(1, int(MEMORY_LIMIT // (n_fields * n * n * 8)) - 2))
+    )
+    hist_bytes = (max_steps // save_every + 2) * n_fields * n * n * 8
+    if hist_bytes > MEMORY_LIMIT:
+        raise MemoryError(f"history {hist_bytes} > {MEMORY_LIMIT}")
+    return save_every, hist_bytes
+
+
+def roughness(result, save_every):
+    h = np.asarray(result.dt_history[1 : int(result.n_saved)])
+    if len(h) < 3 or not np.all(h > 0):
+        return {"status": "unavailable", "save_every": save_every}
+    ramp_end = int(np.argmax(h >= 0.5 * np.median(h)))
+    ratios = h[ramp_end + 1 :] / h[ramp_end:-1]
+    if len(ratios) == 0:
+        return {"status": "unavailable after ramp", "save_every": save_every}
+    log_ratios = np.abs(np.log2(ratios))
+    return {
+        "status": "exact" if save_every == 1 else "sampled saved-step ratios",
+        "save_every": save_every,
+        "ramp_end_saved_index": ramp_end,
+        "median_abs_log2_ratio": float(np.median(log_ratios)),
+        "max_abs_log2_ratio": float(np.max(log_ratios)),
+    }
+
+
+def adaptive_cell(name, n, config, rtol, rhs_uses_time=None):
+    y0, ops, rhs, exact, final = setup(name, n)
+    pid = PIDParams(atol=rtol if config == "sensitivity" else 1e-3 * rtol, rtol=rtol, dt_max=final)
+    method = METHODS.get(config, "etdrk4")
+    uses_time = method != "erk43zb" if rhs_uses_time is None else rhs_uses_time
+    max_steps = 1024
+
+    def solve(cap, save_every):
+        return etd_integrate_adaptive(
+            y0,
+            (0.0, final),
+            1e-4 * final,
+            ops,
+            rhs,
+            method=method,
+            rhs_uses_time=uses_time,
+            pid_params=pid,
+            max_steps=cap,
+            save_every=save_every,
+        )
+
+    escalations = []
+    while True:
+        save_every, hist_bytes = history_settings(n, len(y0), max_steps)
+        first = solve(max_steps, save_every)
+        jax.tree.map(jax.block_until_ready, first.y_final)
+        if int(first.status) != StatusCode.MAX_STEPS_REACHED or max_steps == 200_000:
+            break
+        escalations.append(max_steps)
+        max_steps = min(200_000, max_steps * 2)
+    start = time.perf_counter()
+    result = solve(max_steps, save_every)
+    jax.tree.map(jax.block_until_ready, result.y_final)
+    steady = time.perf_counter() - start
+    if (int(first.n_accepted), int(first.n_rejected)) != (
+        int(result.n_accepted),
+        int(result.n_rejected),
+    ):
+        raise RuntimeError("warmup and steady counts differ")
+    accepted, rejected = int(result.n_accepted), int(result.n_rejected)
+    attempts = accepted + rejected
+    row = {
+        "problem": name,
+        "N": n,
+        "config": config,
+        "rtol": rtol,
+        "atol": pid.atol,
+        "accepted": accepted,
+        "rejected": rejected,
+        "attempts": attempts,
+        "success": bool(result.success),
+        "status": int(result.status),
+        "endpoint_sha256": endpoint_sha(result.y_final),
+        "steady_seconds": steady,
+        "max_steps": max_steps,
+        "save_every": save_every,
+        "hist_bytes": hist_bytes,
+        "capacity_escalations": escalations,
+        "rhs_uses_time": uses_time,
+        "NFE": attempts * NFE[config],
+        "transforms": attempts * TRANSFORMS_PER_FIELD[config] * len(y0),
+        "lean_NFE": (
+            10 * attempts + accepted
+            if method == "etdrk4"
+            else 3 * attempts + 1
+            if method == "erk32zb"
+            else 4 * attempts + accepted
+        ),
+        "roughness": roughness(result, save_every),
+    }
+    if row["success"]:
+        row.update(error_summary(result.y_final, reference(name, n, exact, final), name, n))
+    else:
+        row["reason"] = "integration did not reach the final time"
+    return row
+
+
+def saved_s0(name, n, rtol):
+    y0, ops, rhs, _, final = setup(name, n)
+    pid = PIDParams(rtol=rtol, atol=1e-3 * rtol, dt_max=final)
+    max_steps = 1024
+    while True:
+        hist_bytes = (max_steps + 2) * len(y0) * n * n * 8
+        if hist_bytes > MEMORY_LIMIT:
+            raise MemoryError("probe full history exceeds the memory guard")
+        result = etd_integrate_adaptive(
+            y0,
+            (0.0, final),
+            1e-4 * final,
+            ops,
+            rhs,
+            method="etdrk4",
+            pid_params=pid,
+            max_steps=max_steps,
+            save_every=1,
+        )
+        jax.tree.map(jax.block_until_ready, result.y_final)
+        if int(result.status) != StatusCode.MAX_STEPS_REACHED or max_steps == 200_000:
+            if not bool(result.success):
+                raise RuntimeError(f"S0 probe source failed: {name}/{n} rtol={rtol}")
+            return result, ops, rhs, final
+        max_steps = min(max_steps * 2, 200_000)
+
+
+def estimator_power_cell(name, n):
+    source, ops, rhs, final = saved_s0(name, n, 1e-6)
+    control, _, _, _ = saved_s0(name, n, 1e-4)
+    h_med = float(np.median(np.asarray(control.dt_history[1 : int(control.n_saved)])))
+    times = np.asarray(source.t_history[: int(source.n_saved)])
+    methods = ("S0", "E0a") if name == "P1" else ("S0", "E0a", "E0b")
+    entries = []
+    for fraction in (0.05, 0.5, 0.95):
+        index = int(np.argmin(np.abs(times - fraction * final)))
+        t = float(times[index])
+        y = {key: value[index] for key, value in source.y_history.items()}
+        for method in methods:
+            norms = []
+            for k in range(7):
+                h = h_med * 2 ** (-k)
+                if method == "S0":
+                    full = _etdrk4_step_at(y, t, t + h / 2, t + h, h, ops, rhs)
+                    half1 = _etdrk4_step_at(y, t, t + h / 4, t + h / 2, h / 2, ops, rhs)
+                    high = _etdrk4_step_at(half1, t + h / 2, t + 3 * h / 4, t + h, h / 2, ops, rhs)
+                    err = jax.tree.map(lambda a, b: (a - b) / 15, high, full)
+                else:
+                    tableau = ERK32ZB if method == "E0a" else ERK43ZB
+                    stage_times = tuple(t + float(c) * h for c in tableau.c)
+                    high, low = pair_step_at(y, stage_times, h, ops, rhs, tableau)
+                    err = jax.tree.map(lambda a, b: a - b, high, low)
+                norms.append(float(scaled_error_norm_interior(err, high, 1e-7, 1e-4)))
+            slopes = [
+                math.log2(norms[k] / norms[k + 1]) if norms[k + 1] > 0 else None for k in range(6)
+            ]
+            entries.append(
+                {
+                    "method": method,
+                    "nominal_power": {"S0": 5, "E0a": 3, "E0b": 4}[method],
+                    "target_fraction": fraction,
+                    "saved_time": t,
+                    "source_index": index,
+                    "h_median": h_med,
+                    "norms": norms,
+                    "slopes": slopes,
+                    "median_slope_k_ge_2": float(
+                        np.median([v for v in slopes[2:] if v is not None])
+                    ),
+                }
+            )
+    return {
+        "problem": name,
+        "N": n,
+        "source_counts": [int(source.n_accepted), int(source.n_rejected)],
+        "control_counts": [int(control.n_accepted), int(control.n_rejected)],
+        "entries": entries,
+    }
+
+
+def rhs_time_control_cell(name, n, rtol):
+    true = adaptive_cell(name, n, "S0", rtol, rhs_uses_time=True)
+    false = adaptive_cell(name, n, "S0", rtol, rhs_uses_time=False)
+    return {
+        "problem": name,
+        "N": n,
+        "rtol": rtol,
+        "true_counts": [true["accepted"], true["rejected"]],
+        "false_counts": [false["accepted"], false["rejected"]],
+        "attempts_equal": true["attempts"] == false["attempts"],
+        "endpoint_equal": true["endpoint_sha256"] == false["endpoint_sha256"],
+        "true_endpoint_sha256": true["endpoint_sha256"],
+        "false_endpoint_sha256": false["endpoint_sha256"],
+    }
+
+
+def fixed_cell(name, n, steps, graded=False):
+    y0, ops, rhs, exact, final = setup(name, n)
+    if graded:
+        level = steps
+        m1, m2 = 512 * 2**level, 4096 * 2**level
+        t1 = 0.05 * (np.arange(m1 + 1) / m1) ** 4
+        t2 = np.linspace(0.05, final, m2 + 1)
+        h = jnp.asarray(np.diff(np.concatenate((t1, t2[1:]))))
+
+        @jax.jit
+        def solve():
+            def body(carry, dt):
+                state, t = carry
+                return (_etdrk4_step_at(state, t, t + dt / 2, t + dt, dt, ops, rhs), t + dt), None
+
+            return jax.lax.scan(body, (y0, jnp.asarray(0.0)), h)[0][0]
+
+        n_steps = m1 + m2
+        config = "F_g"
+    else:
+        dt = final / steps
+
+        def solve():
+            return etd_integrate(y0, (0.0, final), dt, ops, rhs, method="etdrk4", save_every=steps)[
+                1
+            ][-1]
+
+        n_steps = steps
+        config = "F"
+    first = solve()
+    jax.tree.map(jax.block_until_ready, first)
+    start = time.perf_counter()
+    state = solve()
+    jax.tree.map(jax.block_until_ready, state)
+    steady = time.perf_counter() - start
+    finite = all(np.all(np.isfinite(np.asarray(v))) for v in state.values())
+    row = {
+        "problem": name,
+        "N": n,
+        "config": config,
+        "steps": n_steps,
+        "level": steps if graded else None,
+        "attempts": n_steps,
+        "accepted": n_steps if finite else None,
+        "rejected": 0,
+        "NFE": 4 * n_steps,
+        "lean_NFE": 4 * n_steps,
+        "transforms": 9 * n_steps * len(y0),
+        "success": finite,
+        "status": "finite" if finite else "non-finite",
+        "endpoint_sha256": endpoint_sha(state),
+        "steady_seconds": steady,
+    }
+    if finite:
+        row.update(error_summary(state, reference(name, n, exact, final), name, n))
+    return row
+
+
+def append(path, row):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a") as stream:
+        stream.write(json.dumps(row, sort_keys=True, allow_nan=False) + "\n")
+        stream.flush()
+
+
+def _tasks():
+    for name, n in CASES:
+        for steps in FIXED_STEPS[name, n]:
+            yield name, n, "F", steps
+        if name == "P5":
+            for level in range(5):
+                yield name, n, "F_g", level
+        for config in CONFIGS:
+            if name == "P1" and config == "E0b":
+                continue
+            for rtol in RTOLS:
+                yield name, n, config, rtol
+
+
+def _row_key(row):
+    value = (
+        row["steps"]
+        if row["config"] == "F"
+        else row["level"]
+        if row["config"] == "F_g"
+        else row["rtol"]
+    )
+    return row["problem"], row["N"], row["config"], value
+
+
+def _worker(mode, name, n, config=None, value=None, strict=False):
+    args = [sys.executable, str(Path(__file__)), mode, name, str(n)]
+    if config is not None:
+        args += [config, str(value)]
+    args += ["--work-dir", str(WORK_DIR)]
+    if strict:
+        args += ["--strict-environment"]
+    env = dict(os.environ, PYTHONPATH=str(ROOT), JAX_PLATFORMS="cpu", JAX_ENABLE_X64="true")
+    return subprocess.run(args, cwd=ROOT, env=env, capture_output=True, text=True, timeout=900)
+
+
+def stage_a(strict=False):
+    verify_references()
+    raw = WORK_DIR / "stage_a.jsonl"
+    done = (
+        {_row_key(json.loads(line)) for line in raw.read_text().splitlines()}
+        if raw.exists()
+        else set()
+    )
+    print(
+        json.dumps(
+            {"environment": check_environment(strict), "remaining": len(list(_tasks())) - len(done)}
+        ),
+        flush=True,
+    )
+    for name, n, config, value in _tasks():
+        if (name, n, config, value) in done:
+            continue
+        started = time.perf_counter()
+        try:
+            proc = _worker("cell", name, n, config, value, strict)
+            if proc.returncode:
+                row = {
+                    "problem": name,
+                    "N": n,
+                    "config": config,
+                    "status": "worker failed",
+                    "reason": proc.stderr[-2000:],
+                }
+            else:
+                row = json.loads(proc.stdout.strip().splitlines()[-1])
+        except subprocess.TimeoutExpired:
+            row = {
+                "problem": name,
+                "N": n,
+                "config": config,
+                "status": "not run (time)",
+                "reason": "15-minute cell limit",
+            }
+        row["steps" if config == "F" else "level" if config == "F_g" else "rtol"] = value
+        row["wall_seconds_total"] = time.perf_counter() - started
+        append(raw, row)
+        print(
+            json.dumps(
+                {
+                    k: row.get(k)
+                    for k in (
+                        "problem",
+                        "N",
+                        "config",
+                        "rtol",
+                        "steps",
+                        "level",
+                        "status",
+                        "success",
+                    )
+                    if k in row
+                }
+            ),
+            flush=True,
+        )
+        if row.get("status") in ("worker failed", "not run (time)"):
+            raise RuntimeError(f"D3 cell failed: {name}/{n}/{config}/{value}: {row.get('reason')}")
+
+
+def probes(strict=False):
+    for name, n in CASES:
+        path = WORK_DIR / f"probe_{name}_{n}.json"
+        if not path.exists():
+            proc = _worker("probe-cell", name, n, strict=strict)
+            if proc.returncode:
+                raise RuntimeError(f"estimator probe failed: {name}/{n}: {proc.stderr[-2000:]}")
+            path.write_text(proc.stdout.strip().splitlines()[-1] + "\n")
+    for name, n in CASES:
+        if name == "P1":
+            continue
+        for rtol in (1e-4, 1e-6):
+            path = WORK_DIR / f"control_{name}_{n}_{rtol:.0e}.json"
+            if path.exists():
+                continue
+            proc = _worker("control-cell", name, n, "S0", rtol, strict)
+            if proc.returncode:
+                raise RuntimeError(
+                    f"rhs time control failed: {name}/{n}/{rtol}: {proc.stderr[-2000:]}"
+                )
+            path.write_text(proc.stdout.strip().splitlines()[-1] + "\n")
+
+
+def main():
+    global WORK_DIR
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "mode",
+        choices=("all", "stage-a", "probes", "analyse", "cell", "probe-cell", "control-cell"),
+    )
+    parser.add_argument("problem", nargs="?")
+    parser.add_argument("N", nargs="?", type=int)
+    parser.add_argument("config", nargs="?")
+    parser.add_argument("value", nargs="?", type=float)
+    parser.add_argument("--work-dir", type=Path)
+    parser.add_argument("--strict-environment", action="store_true")
+    args = parser.parse_args()
+    if args.work_dir is None:
+        WORK_DIR = Path(tempfile.mkdtemp(prefix="d3_", dir=Path.home()))
+    else:
+        WORK_DIR = args.work_dir
+    WORK_DIR.mkdir(parents=True, exist_ok=True)
+    check_environment(args.strict_environment)
+    if args.mode == "cell":
+        verify_references()
+        if args.config == "F":
+            row = fixed_cell(args.problem, args.N, int(args.value))
+        elif args.config == "F_g":
+            row = fixed_cell(args.problem, args.N, int(args.value), graded=True)
+        else:
+            row = adaptive_cell(args.problem, args.N, args.config, args.value)
+        print(json.dumps(row, sort_keys=True, allow_nan=False))
+    elif args.mode == "probe-cell":
+        print(
+            json.dumps(estimator_power_cell(args.problem, args.N), sort_keys=True, allow_nan=False)
+        )
+    elif args.mode == "control-cell":
+        print(
+            json.dumps(
+                rhs_time_control_cell(args.problem, args.N, args.value),
+                sort_keys=True,
+                allow_nan=False,
+            )
+        )
+    else:
+        if args.mode in ("all", "stage-a"):
+            stage_a(args.strict_environment)
+        if args.mode in ("all", "probes"):
+            probes(args.strict_environment)
+        if args.mode in ("all", "analyse"):
+            from benchmarks.d3_work_precision_analysis import complete_study
+
+            complete_study(WORK_DIR, args.strict_environment)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,80 @@
+{
+  "cases": {
+    "P2_128": {
+      "arrays": {
+        "u": "68c99adc6ced36209e9036e66556a159cad1810c75bf45e7af43835fbae87a61",
+        "v": "6cfb63736de6362d5885131dee6e99de9de4bb8c4f5082a58bc04e770dfb24f4"
+      },
+      "est_err": 6.68671919946478e-12
+    },
+    "P2_256": {
+      "arrays": {
+        "u": "3f8bee9c22670b6e5febb1574e013983ab2f11e6cb1eaf3ad6c2001666824a2f",
+        "v": "4042929e3c3b8bc8a31cfc8d0b21a28cd3cfcf699e49c259b8bd880b7f7daaee"
+      },
+      "est_err": 6.098554387694976e-12
+    },
+    "P3_64": {
+      "arrays": {
+        "u": "2c00beb74b1a1dea85218f4bc6fc94d1d6af3975c433abbdf19f8ffeea4b730c",
+        "v": "9b7507aa1ec0e810ebea0da977ef9580e103056838d8a04212dec0ddf885465f"
+      },
+      "est_err": 1.062314379302776e-06
+    },
+    "P4_64": {
+      "arrays": {
+        "u": "8f21b7bcb183a7f0f5509e3188f3906175e9c74e78d5c1c6a2db33c992627548",
+        "v": "75a5b352c180faa631ef714d7cf6dc18e878975ad03a85ae882878dd1c24f2f4"
+      },
+      "est_err": 8.218991363928938e-08
+    },
+    "P5_128": {
+      "arrays": {
+        "u": "35141f047d8861badd284316f9c9edcd67262c3b90c76e296d5226d09e6aabc8",
+        "v": "5397bd4cce55a85b7686910420e6a80c0c602e0538307485d3ab72f1be2bd179"
+      },
+      "est_err": 2.986317503545861e-07
+    },
+    "P5_64": {
+      "arrays": {
+        "u": "3a1ea66b111a705b7d1afc98fe478b1bfdb50f29968024e79e20fe7ff80755a6",
+        "v": "dc562edc45044228d57880a487543ea94379bce68179f040fe55739fc24d9c32"
+      },
+      "est_err": 1.4326020483655173e-07
+    }
+  },
+  "confirmation": {
+    "P1_64": {
+      "epsilon_conf": 0.0,
+      "method": "exact"
+    },
+    "P2_128": {
+      "epsilon_conf": 1.586128187889244e-09,
+      "method": "self-convergence in D3 metric"
+    },
+    "P2_256": {
+      "epsilon_conf": 1.7194977621261063e-09,
+      "method": "self-convergence in D3 metric"
+    },
+    "P3_64": {
+      "epsilon_conf": 5.523578644838155e-07,
+      "method": "endpoint distance plus bounded self-error"
+    },
+    "P4_64": {
+      "epsilon_conf": 2.8765795458517965e-08,
+      "method": "endpoint distance plus bounded self-error"
+    },
+    "P5_128": {
+      "epsilon_conf": 5.549261130598974e-07,
+      "method": "endpoint distance plus bounded self-error"
+    },
+    "P5_64": {
+      "epsilon_conf": 9.065371217057927e-06,
+      "method": "endpoint distance plus bounded self-error"
+    }
+  },
+  "confirmation_source": "D3 v3.2 reference audit on experiment/etd-embedded-pairs",
+  "est_err_source_sha256": "a31665b32fdd5d31ea44c30492f70e0d82a51a2b4efcc0a9fa1bf8ecdc9d9faf",
+  "host_specific": true,
+  "recipe": "D0b ETDRK4 rtol=atol=1e-8 accepted steps; each divided into 16 traced ETDRK4 substeps"
+}
