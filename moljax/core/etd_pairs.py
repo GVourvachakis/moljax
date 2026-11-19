@@ -135,27 +135,27 @@ def _erk43zb() -> EmbeddedTableau:
         _scale(p(1, 3, f(1, 2)), -f(1, 5)),
     )
     a30 = _minus(_scale(p(1, 1, f(1, 2)), f(1, 2)), a31, a32)
-    a43 = _add(p(1, 2), p(1, 2, f(1, 2)), _scale(p(1, 3), -6), _scale(p(1, 3, f(1, 2)), -3))
-    a41 = _add(
+    e3 = _add(p(1, 2), p(1, 2, f(1, 2)), _scale(p(1, 3), -6), _scale(p(1, 3, f(1, 2)), -3))
+    e1 = _add(
         _scale(p(1, 2), 3),
         _scale(p(1, 2, f(1, 2)), -f(9, 2)),
         _scale(p(1, 2, f(1, 6)), -f(5, 2)),
-        _scale(a43, 6),
+        _scale(e3, 6),
         a31,
     )
-    a42 = _add(_scale(p(1, 3), 6), _scale(p(1, 3, f(1, 2)), 3), _scale(a43, -2), a32)
-    a40 = _minus(p(1, 1), a41, a42, a43)
-    bh0 = _add(p(1, 1), _scale(p(1, 2), -f(67, 9)), _scale(p(1, 3), f(52, 3)))
-    bh1 = _add(_scale(p(1, 2), 8), _scale(p(1, 3), -24))
-    bh2 = _add(_scale(p(1, 3), f(26, 3)), _scale(p(1, 2), -f(11, 9)))
-    bh3 = _add(_scale(p(1, 2), f(7, 9)), _scale(p(1, 3), -f(10, 3)))
-    bh4 = _add(_scale(p(1, 3), f(4, 3)), _scale(p(1, 2), -f(1, 9)))
+    e2 = _add(_scale(p(1, 3), 6), _scale(p(1, 3, f(1, 2)), 3), _scale(e3, -2), a32)
+    e0 = _minus(p(1, 1), e1, e2, e3)
+    b0 = _add(p(1, 1), _scale(p(1, 2), -f(67, 9)), _scale(p(1, 3), f(52, 3)))
+    b1 = _add(_scale(p(1, 2), 8), _scale(p(1, 3), -24))
+    b2 = _add(_scale(p(1, 3), f(26, 3)), _scale(p(1, 2), -f(11, 9)))
+    b3 = _add(_scale(p(1, 2), f(7, 9)), _scale(p(1, 3), -f(10, 3)))
+    b4 = _add(_scale(p(1, 3), f(4, 3)), _scale(p(1, 2), -f(1, 9)))
     return EmbeddedTableau(
         "erk43zb",
         (f(0), f(1, 6), f(1, 2), f(1, 2), f(1)),
-        ((), (a10,), (a20, a21), (a30, a31, a32), (a40, a41, a42, a43)),
-        (bh0, bh1, bh2, bh3, bh4),
-        (a40, a41, a42, a43, ()),
+        ((), (a10,), (a20, a21), (a30, a31, a32), (e0, e1, e2, e3)),
+        (b0, b1, b2, b3, b4),
+        (e0, e1, e2, e3, ()),
         4,
         3,
     )
@@ -170,6 +170,8 @@ def pair_step_at(y, stage_times, h, linear_ops, nonlinear_rhs, tableau):
 
     The Fourier layout follows the existing ETD stepper. Each distinct
     phi_k(argument * h * L) is built once per field and trial step.
+    Reusing the final stage leaves 5/4 and 6/5 forward/inverse transforms
+    per field for ERK32ZB and ERK43ZB, respectively.
     """
     from moljax.core.fft_integrators import _fft_pair
 
@@ -192,7 +194,8 @@ def pair_step_at(y, stage_times, h, linear_ops, nonlinear_rhs, tableau):
         def weight(expression, phis=phis):
             return sum(float(coef) * phis[k, arg] for coef, k, arg in expression)
 
-        fields[name] = (forward, inverse, z, forward(value), weight)
+        exps = {c: jnp.exp(float(c) * z) for c in set(tableau.c) if c}
+        fields[name] = (forward, inverse, z, forward(value), weight, exps)
 
     n_hat = []
     for i, c in enumerate(tableau.c):
@@ -200,9 +203,9 @@ def pair_step_at(y, stage_times, h, linear_ops, nonlinear_rhs, tableau):
             stage = y
         else:
             stage = {}
-            for name, (_, inverse, z, y_hat, weight) in fields.items():
-                hat = jnp.exp(float(c) * z) * y_hat + h * sum(
-                    weight(tableau.a[i][j]) * n_hat[j][name] for j in range(i)
+            for name, (_, inverse, _, y_hat, weight, exps) in fields.items():
+                hat = exps[c] * y_hat + h * sum(
+                    weight(tableau.a[i][j]) * n_hat[j][name] for j in range(i) if tableau.a[i][j]
                 )
                 stage[name] = inverse(hat)
         n = nonlinear_rhs(stage, stage_times[i])
@@ -210,10 +213,13 @@ def pair_step_at(y, stage_times, h, linear_ops, nonlinear_rhs, tableau):
 
     results = []
     for weights in (tableau.b, tableau.bhat):
+        if weights[:-1] == tableau.a[-1] and not weights[-1]:
+            results.append(stage)
+            continue
         result = {}
-        for name, (_, inverse, z, y_hat, weight) in fields.items():
-            hat = jnp.exp(z) * y_hat + h * sum(
-                weight(weights[i]) * n_hat[i][name] for i in range(len(weights))
+        for name, (_, inverse, _, y_hat, weight, exps) in fields.items():
+            hat = exps[tableau.c[-1]] * y_hat + h * sum(
+                weight(weights[i]) * n_hat[i][name] for i in range(len(weights)) if weights[i]
             )
             result[name] = inverse(hat)
         results.append(result)
