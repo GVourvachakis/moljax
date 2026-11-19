@@ -419,80 +419,6 @@ def decomposition(d3_result, ladders):
     return outputs, missing
 
 
-def render(payload):
-    lines = [
-        "# D3b fixed-pair decomposition — exploratory, post hoc",
-        "",
-        "This analysis was formed after seeing D3. It changes no D3 verdict.",
-        "",
-        "## Provenance and checks",
-        "",
-        f"- Base `{payload['provenance']['head']}`; Python {payload['provenance']['python']}; "
-        f"JAX {payload['provenance']['jax']}; backend {payload['provenance']['backend']}.",
-        "Source: `d3b_fixed_pairs.json`, `/provenance`.",
-        "",
-        f"- As-run NFE per Z43/Z32 step: "
-        f"{payload['nfe_check']['Z43']['as_run_calls_per_step']}/"
-        f"{payload['nfe_check']['Z32']['as_run_calls_per_step']}; "
-        f"bitwise D3 spot checks: {sum(x['bitwise_match'] for x in payload['spot_checks'])}/"
-        f"{len(payload['spot_checks'])}.",
-        "Source: `d3b_fixed_pairs.json`, `/nfe_check` and `/spot_checks`.",
-        "",
-        "## Fixed-step ladders",
-        "",
-        "Z32's FSAL NFE is hypothetical; the as-run stepper makes four calls per step. "
-        "A dash for order means the adjacent error ratio was unavailable.",
-        "",
-        "| Case | Ladder | Steps | NFE | FSAL NFE | Relative error | Order | Validity/status |",
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |",
-    ]
-    for row in payload["ladders"]:
-        case = f"{row['problem']}/{row['N']}"
-        if row.get("level") is not None:
-            case += f" level {row['level']}"
-        lines.append(
-            f"| {case} | {row['config']} | {row['steps']} | {row.get('NFE') or '—'} | "
-            f"{row.get('NFE_with_FSAL') or '—'} | "
-            f"{row['error_inf_relative']:.6g} | "
-            if row.get("error_inf_relative") is not None
-            else f"| {case} | {row['config']} | {row['steps']} | {row.get('NFE') or '—'} | "
-            f"{row.get('NFE_with_FSAL') or '—'} | — | "
-        )
-        lines[-1] += f"{row['observed_order']:.3g}" if row["observed_order"] is not None else "—"
-        lines[-1] += f" | {row.get('validity') or row['status']} |"
-    lines += [
-        "Source: `d3b_fixed_pairs.json`, `/ladders` (every row).",
-        "",
-        "## Decomposition at matched accuracy",
-        "",
-        "| Case | Pair | Baseline | Target | Adaptivity | Method | Control | Product | D3 Q | Difference |",
-        "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
-    ]
-    for row in payload["decomposition"]:
-        a, m, c = (row["factors"][key] for key in ("adaptivity", "method", "control"))
-        lines.append(
-            f"| {row['problem']}/{row['N']} | {row['candidate']} | {row['fixed_baseline']} | "
-            f"{row['target']:.0e} | {a:.5g} | {m:.5g} | {c:.5g} | "
-            f"{row['product']:.5g} | {row['D3_Q']:.5g} | "
-            f"{row['product_minus_D3_Q']:.2g} |"
-        )
-    lines += [
-        "Source: `d3b_fixed_pairs.json`, `/decomposition` (every row).",
-        "",
-        "## Missing matched-target cells",
-        "",
-        "| Case | Pair | Baseline | Target | Unavailable factor inputs and reason |",
-        "| --- | --- | --- | ---: | --- |",
-    ]
-    for row in payload["missing"]:
-        reason = "; ".join(f"{x['config']}: {x['reason']}" for x in row["unavailable"])
-        lines.append(
-            f"| {row['problem']}/{row['N']} | {row['candidate']} | "
-            f"{row['fixed_baseline']} | {row['target']:.0e} | {reason} |"
-        )
-    lines += ["Source: `d3b_fixed_pairs.json`, `/missing` (every row).", ""]
-    return "\n".join(lines)
-
 
 def finalise(d3_result, nfe, spots, measured):
     old = [slim_f(r) for r in d3_result["records"] if r["config"] in ("F", "F_g")]
@@ -532,7 +458,9 @@ def finalise(d3_result, nfe, spots, measured):
     OUTPUT.write_text(json.dumps(payload, sort_keys=True, indent=2, allow_nan=False) + "\n")
     if OUTPUT.stat().st_size > 1_000_000:
         raise RuntimeError(f"D3b JSON exceeds 1 MB: {OUTPUT.stat().st_size}")
-    REPORT.write_text(render(json.loads(OUTPUT.read_text())))
+    from benchmarks.make_d3_summaries import render_d3b_base
+
+    REPORT.write_text(render_d3b_base(json.loads(OUTPUT.read_text())))
     print(
         f"D3b complete: {len(ladders)} ladder rows, {len(decomposed)} decompositions, "
         f"{len(missing)} missing; {OUTPUT.stat().st_size} JSON bytes",
@@ -564,7 +492,7 @@ def main():
         SCRATCH = args.work_dir
     RAW = SCRATCH / "results/ladders.jsonl"
     if args.mode == "render":
-        from benchmarks.d3b_graded_decomposition import render_full
+        from benchmarks.make_d3_summaries import render_full
 
         print(render_full(), end="")
         return

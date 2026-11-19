@@ -543,139 +543,6 @@ def timed_summary(plan, rows, work_dir):
     }
 
 
-def _fmt(value, pointer, digits=4):
-    return (
-        f"{value:.{digits}g} (`{pointer}`)" if value is not None else f"unattainable (`{pointer}`)"
-    )
-
-
-def render(payload):
-    lines = [
-        "# D3: adaptive exponential work precision",
-        "",
-        "## Setup and protocol",
-        "",
-        "The H1 threshold and matched accuracy targets were fixed before comparison. "
-        "The reference arrays and their checksums are in `d3_references.npz` and "
-        "`d3_references.json`. CPU timings are secondary evidence.",
-        "",
-        f"H1 requires Q ≥ {_fmt(payload['settings']['H1_thresholds']['support_Q'], '/settings/H1_thresholds/support_Q')} "
-        f"on at least {_fmt(payload['settings']['H1_thresholds']['minimum_problem_count'], '/settings/H1_thresholds/minimum_problem_count')} "
-        f"eligible problems, with no problem below {_fmt(payload['settings']['H1_thresholds']['loss_Q'], '/settings/H1_thresholds/loss_Q')}.",
-        "",
-        "| Case | Reference confirmation level | Method |",
-        "| --- | ---: | --- |",
-    ]
-    for case, detail in payload["reference_confirmation"].items():
-        lines.append(
-            f"| {case} | {_fmt(detail['epsilon_conf'], '/reference_confirmation/' + case + '/epsilon_conf')} | {detail['method']} |"
-        )
-    lines += [
-        "",
-        "Source: `d3_work_precision.json`, `/settings`, `/reference_confirmation`, `/provenance`.",
-        "",
-        "## H1: embedded pairs against step doubling",
-        "",
-        "| Pair | Problem | Median Q | Supported |",
-        "| --- | --- | ---: | --- |",
-    ]
-    for method, result in payload["hypotheses"]["H1"].items():
-        for problem, cell in result["by_problem"].items():
-            ptr = f"/hypotheses/H1/{method}/by_problem/{problem}/median_Q"
-            lines.append(
-                f"| {method} | {problem} | {_fmt(cell['median_Q'], ptr)} | {result['supported']} |"
-            )
-    lines += [
-        "",
-        "Source: `d3_work_precision.json`, `/hypotheses/H1`.",
-        "",
-        "The primary Q uses nominal NFE. Lean NFE and CPU-time ratios are reported as secondary checks.",
-        "",
-        "| Case | Pair | Target | Q | Lean Q | Confirmed |",
-        "| --- | --- | ---: | ---: | ---: | --- |",
-    ]
-    for key, cells in payload["matched_targets"].items():
-        if not key.endswith(("/E0a", "/E0b")):
-            continue
-        for index, cell in enumerate(cells):
-            ptr = f"/matched_targets/{key}/{index}"
-            lines.append(
-                f"| {key.rsplit('/', 1)[0]} | {key.rsplit('/', 1)[1]} | "
-                f"{_fmt(cell['target'], ptr + '/target')} | "
-                f"{_fmt(cell['Q_vs_S0_NFE'], ptr + '/Q_vs_S0_NFE')} | "
-                f"{_fmt(cell['Q_vs_S0_lean_NFE'], ptr + '/Q_vs_S0_lean_NFE')} | {cell['confirmed']} |"
-            )
-    lines += [
-        "",
-        "Source: `d3_work_precision.json`, `/matched_targets`.",
-        "",
-        "## H3: fixed-step anchors (descriptive)",
-        "",
-        "| Case / method / baseline | Median R |",
-        "| --- | ---: |",
-    ]
-    for key, cell in payload["hypotheses"]["H3"].items():
-        lines.append(f"| {key} | {_fmt(cell['median_R'], '/hypotheses/H3/' + key + '/median_R')} |")
-    lines += [
-        "",
-        "Source: `d3_work_precision.json`, `/hypotheses/H3`.",
-        "",
-        "## Estimator power and tolerance proportionality",
-        "",
-        "| Case | Method | Time fraction | Median slope | Nominal power |",
-        "| --- | --- | ---: | ---: | ---: |",
-    ]
-    for case_index, probe in enumerate(payload["estimator_power"]):
-        for entry_index, entry in enumerate(probe["entries"]):
-            ptr = f"/estimator_power/{case_index}/entries/{entry_index}"
-            lines.append(
-                f"| {probe['problem']}/{probe['N']} | {entry['method']} | "
-                f"{_fmt(entry['target_fraction'], ptr + '/target_fraction')} | "
-                f"{_fmt(entry['median_slope_k_ge_2'], ptr + '/median_slope_k_ge_2')} | "
-                f"{_fmt(entry['nominal_power'], ptr + '/nominal_power')} |"
-            )
-    lines += [
-        "",
-        "Source: `d3_work_precision.json`, `/estimator_power`.",
-        "",
-        "| Case / method | Tolerance slope | Valid records |",
-        "| --- | ---: | ---: |",
-    ]
-    for key, cell in payload["tolerance_proportionality"].items():
-        lines.append(
-            f"| {key} | {_fmt(cell['slope'], '/tolerance_proportionality/' + key + '/slope')} | "
-            f"{_fmt(cell['n'], '/tolerance_proportionality/' + key + '/n')} |"
-        )
-    lines += [
-        "",
-        "Source: `d3_work_precision.json`, `/tolerance_proportionality`.",
-        "",
-        "## CPU timing ratios",
-        "",
-        "| Case / method | Time ratio against S0 | Bootstrap interval |",
-        "| --- | ---: | ---: |",
-    ]
-    for key, cell in payload["timing"]["ratios"].items():
-        ptr = "/timing/ratios/" + key
-        lo, hi = cell["bootstrap_95pct"]
-        lines.append(
-            f"| {key} | {_fmt(cell['Q_time_vs_S0'], ptr + '/Q_time_vs_S0')} | "
-            f"{_fmt(lo, ptr + '/bootstrap_95pct/0')} to {_fmt(hi, ptr + '/bootstrap_95pct/1')} |"
-        )
-    lines += [
-        "",
-        "Source: `d3_work_precision.json`, `/timing`.",
-        "",
-        "## Limits",
-        "",
-        "ERK43ZB's 1/6 stage is outside the tick clock's one-rounding guarantee, so it is "
-        "restricted to autonomous RHS. Measurements used a laptop CPU. Filter presets and the "
-        "adaptive IMEX comparator remain on [experiment/etd-embedded-pairs](https://github.com/GVourvachakis/moljax/tree/experiment/etd-embedded-pairs); they are not part of this branch.",
-        "",
-        "Source: `d3_work_precision.json`, `/settings`.",
-        "",
-    ]
-    return "\n".join(lines)
 
 
 def _write_csv(rows, matched):
@@ -797,14 +664,16 @@ def complete_study(work_dir, strict=False):
     if output.stat().st_size > 2_000_000:
         raise RuntimeError("D3 summary JSON exceeds 2 MB")
     _write_csv(rows, matched)
-    (d3.ROOT / "benchmarks/results/D3_SUMMARY.md").write_text(
-        render(json.loads(output.read_text()))
-    )
+    from benchmarks.make_d3_summaries import render
+
+    (d3.ROOT / "benchmarks/results/D3_SUMMARY.md").write_text(render(json.loads(output.read_text())))
     return payload
 
 
 def main():
     if len(sys.argv) == 2 and sys.argv[1] == "render":
+        from benchmarks.make_d3_summaries import render
+
         path = d3.ROOT / "benchmarks/results/d3_work_precision.json"
         print(render(json.loads(path.read_text())), end="")
     elif len(sys.argv) == 5 and sys.argv[1] == "timing-case":

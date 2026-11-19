@@ -20,8 +20,6 @@ RESULTS = ROOT / "benchmarks/results"
 INPUTS = ("d3_work_precision.json", "d3b_fixed_pairs.json")
 OUTPUT = RESULTS / "d3b_graded_decomposition.json"
 REPORT = RESULTS / "D3B_SUMMARY.md"
-HEADING = "## Graded two-factor view on P5 (exploratory, post hoc)"
-NEXT_HEADING = "## Missing matched-target cells"
 
 
 def load_inputs():
@@ -163,64 +161,13 @@ def render():
     }
 
 
-def render_section(payload):
-    rows = payload["decomposition"]
-    ladders = payload["ladders"]
-    shared = [r for r in ladders if r["mesh"] == "uniform" and r["steps"] == 16384]
-    orders = [r[key] for r in shared for key in ("observed_order_F", "observed_order_Z43")]
-    uniform = [r["error_ratio_F_over_Z43"] for r in ladders if r["mesh"] == "uniform"]
-    fully_valid = [
-        r["error_ratio_F_over_Z43"]
-        for r in ladders
-        if r["mesh"] == "graded" and r["validity"] == "valid"
-    ]
-    usable_graded = [
-        r["error_ratio_F_over_Z43"]
-        for r in ladders
-        if r["mesh"] == "graded" and r["validity"] != "indeterminate"
-    ]
-    methods = [r["method"] for r in rows]
-
-    def two_sig(value):
-        result = f"{value:.2g}"
-        return result + ".0" if len(result) == 1 and result.isdigit() else result
-
-    def span(values):
-        return f"{two_sig(min(values))}–{two_sig(max(values))}"
-
-    table = "\n".join(
-        f"| {r['case']} | {r['target']:.0e} | {two_sig(r['method'])} | {two_sig(r['control'])} | "
-        f"{two_sig(r['product'])} | {r['target_status']} |"
-        for r in rows
-    )
-    return f"""{HEADING}
-
-On P5 the uniform-baseline factors above mix two effects. With uniform steps both F and Z43 are limited by the noisy initial layer (observed orders {span(orders)} on the finest shared rungs), and their same-step error ratio is only {span(uniform)}, so the uniform "control" factor also carries the grading of that layer. With the γ = 4 graded ladders as the baseline, R(E0b vs F_g) = [F_g/Z43_g] × [Z43_g/E0b]:
-
-| Case | Target | Method F_g/Z43_g | Control Z43_g/E0b | Product | Target status |
-| --- | ---: | ---: | ---: | ---: | --- |
-{table}
-Source: `d3b_graded_decomposition.json`, `/ladders` and `/decomposition`.
-
-On the fully valid graded levels the same-mesh error ratio F_g/Z43_g is {span(fully_valid)}×; including reference-limited levels gives {span(usable_graded)}×. Reading: on P5, adaptive ERK43ZB's advantage over the graded ETDRK4 oracle comes from the method. Once the layer is graded, fixed-step ERK43ZB is about {span(methods)}× cheaper than ETDRK4 at 1e-5, and adaptive ERK43ZB is about as efficient as its own graded oracle. Why ETDRK4 is weaker here is not established. This view changes no D3 verdict.
-Source: `d3b_graded_decomposition.json`, `/ladders` and `/decomposition`."""
-
-
-def render_full():
-    from benchmarks.d3b_fixed_pairs import render as render_base
-
-    base = render_base(json.loads((RESULTS / "d3b_fixed_pairs.json").read_text()))
-    graded = json.loads(OUTPUT.read_text())
-    before, marker, after = base.partition(NEXT_HEADING)
-    if not marker:
-        raise RuntimeError(f"{NEXT_HEADING} missing from {REPORT}")
-    before = before.split(HEADING)[0].rstrip()
-    return before + "\n\n" + render_section(graded) + "\n\n" + marker + after
 
 
 def main():
     payload = render()
     OUTPUT.write_text(json.dumps(payload, indent=2) + "\n")
+    from benchmarks.make_d3_summaries import render_full
+
     REPORT.write_text(render_full())
     print(OUTPUT)
 
