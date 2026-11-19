@@ -214,6 +214,8 @@ def pair_step_at(y, stage_times, h, linear_ops, nonlinear_rhs, tableau):
     results = []
     for weights in (tableau.b, tableau.bhat):
         if weights[:-1] == tableau.a[-1] and not weights[-1]:
+            if tableau.c[-1] != 1:
+                raise ValueError("reusing the final stage as an output requires c[-1] == 1")
             results.append(stage)
             continue
         result = {}

@@ -1,6 +1,7 @@
 """Independent checks of Zoto--Bowman Tables 9 and 10 (arXiv:2303.12139v2)."""
 
 import math
+from dataclasses import replace
 from fractions import Fraction
 from functools import cache
 
@@ -332,6 +333,17 @@ def test_stage_reuse_bitwise_matches_original(tableau, is_rfft):
         for expected_state, actual_state in zip(expected, actual, strict=True):
             for name in state:
                 np.testing.assert_array_equal(actual_state[name], expected_state[name])
+
+
+def test_reused_final_stage_requires_endpoint_abscissa():
+    tableau = replace(ERK32ZB, c=ERK32ZB.c[:-1] + (Fraction(7, 8),))
+    state = {"u": jnp.ones(4)}
+
+    def rhs(y, _):
+        return {"u": -y["u"]}
+
+    with pytest.raises(ValueError, match=r"c\[-1\] == 1"):
+        pair_step_at(state, tuple(float(c) for c in tableau.c), 1.0, {}, rhs, tableau)
 
 
 def test_manufactured_2d_order_and_estimator():
