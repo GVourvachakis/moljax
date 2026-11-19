@@ -109,10 +109,16 @@ def estimate_error(name: str, n: int) -> tuple[float, dict[str, np.ndarray]]:
         return float(np.max(np.abs(left - right)))
 
     d1, d2 = distance(4, 8), distance(8, 16)
-    p_obs = math.log2(d1 / d2)
-    if not 2 <= p_obs <= 6:
-        raise RuntimeError(f"D0b B1 order outside [2, 6]: {name}/{n}: {p_obs}")
-    est_err = d2 / (2**p_obs - 1)
+    p_obs = math.log2(d1 / d2) if d1 > 0 and d2 > 0 else None
+    if p_obs is not None and 2 <= p_obs <= 6:
+        est_err = d2 / (2**p_obs - 1)
+    else:
+        endpoints[32] = _refined_endpoint(source, 32)
+        d3 = distance(16, 32)
+        p32 = math.log2(d2 / d3) if d2 > 0 and d3 > 0 else None
+        if p32 is None or not 2 <= p32 <= 6:
+            raise RuntimeError(f"D0b B1 order outside [2, 6] after m=32: {name}/{n}: {p32}")
+        est_err = d3 / (2**p32 - 1)
     case = f"{name}_{n}"
     if est_err != D0B_EST_ERR[case]:
         raise RuntimeError(f"D0b B1 estimate differs: {case}: {est_err} != {D0B_EST_ERR[case]}")
@@ -131,7 +137,7 @@ def main() -> None:
     manifest = {
         "recipe": "D0b ETDRK4 rtol=atol=1e-8 accepted steps; each divided into 16 traced ETDRK4 substeps",
         "host_specific": True,
-        "est_err_recipe": "D0b B1: for each accepted ETDRK4 step at rtol=atol=1e-8, split it into 4, 8 and 16 traced substeps; d1=||ref4-ref8||_inf, d2=||ref8-ref16||_inf, p=log2(d1/d2), est_err=d2/(2**p-1); require 2<=p<=6; matches D0b B1 bitwise",
+        "est_err_recipe": "D0b B1: for each accepted ETDRK4 step at rtol=atol=1e-8, split it into 4, 8 and 16 traced substeps; d1=||ref4-ref8||_inf, d2=||ref8-ref16||_inf, p=log2(d1/d2), est_err=d2/(2**p-1) when 2<=p<=6; otherwise repeat with 32 and use d3=||ref16-ref32||_inf, p32=log2(d2/d3); matches D0b B1 bitwise",
         "confirmation_source": "D3 v3.2 reference audit on experiment/etd-embedded-pairs",
         "confirmation": {
             case: {"epsilon_conf": value, "method": method}

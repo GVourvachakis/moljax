@@ -765,7 +765,7 @@ def _build_etd_adaptive_driver(linear_ops, nonlinear_rhs, method, pid_params, ma
     order = _ETD_ADAPTIVE_ORDER[method]
     # Richardson: the error of the two half steps is
     # (y_half2 - y_full) / (2^p - 1) to leading order.
-    richardson = 1.0 / (2.0**order - 1.0)
+    richardson = 1.0 / (2.0 ** order - 1.0)
     # Embedded pairs control the low-order estimate's local defect;
     # doubled methods control the high-order step's local defect.
     controller_order = (
@@ -1336,7 +1336,7 @@ def etd_integrate_adaptive(
     dt0: float,
     linear_ops: dict[str, FFTLinearOperator],
     nonlinear_rhs: Callable[[StateDict, float], StateDict],
-    method: str = "etdrk4",
+    method: str = 'etdrk4',
     pid_params: PIDParams | None = None,
     max_steps: int = 10000,
     save_every: int = 1,

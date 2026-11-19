@@ -7,6 +7,9 @@ This analysis was formed after seeing D3. It changes no D3 verdict.
 - Base `deb96e7de9fc54d0e67549babfdb6392061dbeda`; Python 3.12.3; JAX 0.11.2; backend cpu.
 Source: `d3b_fixed_pairs.json`, `/provenance`.
 
+The ladders were measured by `d3b_fixed_pairs.py` at its recorded script SHA-256 `aeb960123b8ddda7f4a2d5f59dd8da47a294f180f33b3cfe932ac8c5585d2b76`; that blob is committed in `b494c0c`, before rendering moved. D3b read the D3 JSON as committed in `deb96e7` (SHA-256 `3b37a09d83200b4dffc1fd01fa7f9776f9d6502f724670a788a9bd2aebe61982`).
+Source: `d3b_fixed_pairs.json`, `/provenance/script_sha256`, `/provenance/d3_json_sha256`.
+
 - As-run NFE per Z43/Z32 step: 5/4; bitwise D3 spot checks: 4/4.
 Source: `d3b_fixed_pairs.json`, `/nfe_check` and `/spot_checks`.
 
@@ -211,6 +214,7 @@ Z32's FSAL NFE is hypothetical; the as-run stepper makes four calls per step. A 
 | P5/128 level 2 | Z43_g | 18432 | 92160 | — | 1.64944e-07 | 3.15 | indeterminate |
 | P5/128 level 3 | Z43_g | 36864 | 184320 | — | 5.07233e-08 | 1.7 | indeterminate |
 | P5/128 level 4 | Z43_g | 73728 | 368640 | — | 3.99517e-08 | 0.344 | indeterminate |
+
 Source: `d3b_fixed_pairs.json`, `/ladders` (every row).
 
 ## Decomposition at matched accuracy
@@ -238,6 +242,7 @@ Source: `d3b_fixed_pairs.json`, `/ladders` (every row).
 | P5/64 | E0b | F | 1e-03 | 0.88608 | 0.93665 | 4.0096 | 3.3277 | 3.3277 | 0 |
 | P5/128 | E0a | F | 1e-03 | 0.66319 | 0.68274 | 3.4189 | 1.548 | 1.548 | 0 |
 | P5/128 | E0b | F | 1e-03 | 0.66319 | 0.93649 | 5.4022 | 3.3551 | 3.3551 | -4.4e-16 |
+
 Source: `d3b_fixed_pairs.json`, `/decomposition` (every row).
 
 ## Graded two-factor view on P5 (exploratory, post hoc)
@@ -248,6 +253,7 @@ On P5 the uniform-baseline factors above mix two effects. With uniform steps bot
 | --- | ---: | ---: | ---: | ---: | --- |
 | P5/64 | 1e-05 | 3.5 | 0.97 | 3.4 | self-convergence only |
 | P5/128 | 1e-05 | 3.0 | 0.96 | 2.8 | confirmed |
+
 Source: `d3b_graded_decomposition.json`, `/ladders` and `/decomposition`.
 
 On the fully valid graded levels the same-mesh error ratio F_g/Z43_g is 28–29×; including reference-limited levels gives 26–44×. Reading: on P5, adaptive ERK43ZB's advantage over the graded ETDRK4 oracle comes from the method. Once the layer is graded, fixed-step ERK43ZB is about 3.0–3.5× cheaper than ETDRK4 at 1e-5, and adaptive ERK43ZB is about as efficient as its own graded oracle. Why ETDRK4 is weaker here is not established. This view changes no D3 verdict.
@@ -296,4 +302,5 @@ Source: `d3b_graded_decomposition.json`, `/ladders` and `/decomposition`.
 | P5/128 | E0b | F_g | 1e-04 | Z43_g: outside usable Pareto error range [1.46224e-06, 1.05261e-05] |
 | P5/128 | E0b | F_g | 1e-05 | S0: outside usable Pareto error range [3.06598e-05, 0.00450607] |
 | P5/128 | E0b | F_g | 1e-06 | S0: outside usable Pareto error range [3.06598e-05, 0.00450607]; Z43_g: outside usable Pareto error range [1.46224e-06, 1.05261e-05]; E0b: outside usable Pareto error range [1.43514e-06, 0.00440873] |
+
 Source: `d3b_fixed_pairs.json`, `/missing` (every row).

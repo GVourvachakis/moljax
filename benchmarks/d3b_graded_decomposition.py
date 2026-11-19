@@ -1,6 +1,6 @@
 """Exploratory, post-hoc graded P5 decomposition from committed D3 JSONs.
 
-Run ``JAX_PLATFORMS=cpu JAX_ENABLE_X64=true PYTHONPATH=. .venv/bin/python benchmarks/d3b_graded_decomposition.py``.
+Run ``JAX_PLATFORMS=cpu JAX_ENABLE_X64=true PYTHONPATH=. python benchmarks/d3b_graded_decomposition.py``.
 """
 
 from __future__ import annotations
@@ -159,8 +159,6 @@ def render():
         "decomposition": decomposition,
         "ladders": ladders,
     }
-
-
 
 
 def main():

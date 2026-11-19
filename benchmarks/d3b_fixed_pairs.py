@@ -1,6 +1,6 @@
 """Exploratory, post hoc D3 decomposition using fixed-step embedded pairs.
 
-Run ``JAX_PLATFORMS=cpu JAX_ENABLE_X64=true PYTHONPATH=. .venv/bin/python benchmarks/d3b_fixed_pairs.py all``.
+Run ``JAX_PLATFORMS=cpu JAX_ENABLE_X64=true PYTHONPATH=. python benchmarks/d3b_fixed_pairs.py all``.
 Checkpointed measurements and logs go to --work-dir.
 """
 
@@ -417,7 +417,6 @@ def decomposition(d3_result, ladders):
                     }
                 )
     return outputs, missing
-
 
 
 def finalise(d3_result, nfe, spots, measured):

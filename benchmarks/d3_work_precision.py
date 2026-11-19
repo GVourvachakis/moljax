@@ -1,6 +1,6 @@
 """Self-contained CPU work-precision benchmark for adaptive exponential integrators.
 
-Run ``JAX_PLATFORMS=cpu JAX_ENABLE_X64=true PYTHONPATH=. .venv/bin/python benchmarks/d3_work_precision.py all``.
+Run ``JAX_PLATFORMS=cpu JAX_ENABLE_X64=true PYTHONPATH=. python benchmarks/d3_work_precision.py all``.
 Use ``--work-dir`` to resume checkpoints in a chosen directory.
 """
 
@@ -46,6 +46,13 @@ ROOT = Path(__file__).resolve().parents[1]
 REFS = ROOT / "benchmarks/results/d3_references.npz"
 REF_MANIFEST = ROOT / "benchmarks/results/d3_references.json"
 CASES = (("P1", 64), ("P2", 128), ("P2", 256), ("P3", 64), ("P4", 64), ("P5", 64), ("P5", 128))
+PROBLEM_SETTINGS = {
+    "P1": ("manufactured", 1.0, 2.0, {"u": 0.01}, True, None),
+    "P2": ("Gray–Scott", 1.0, 100.0, {"u": 2e-5, "v": 1e-5}, False, None),
+    "P3": ("Turing Brusselator", 5.0, 200.0, {"u": 0.01, "v": 0.1}, False, "TURING_REGIME"),
+    "P4": ("Hopf Brusselator", 5.0, 20.0, {"u": 0.01, "v": 0.02}, False, "HOPF_REGIME"),
+    "P5": ("Schnakenberg", 1.0, 1.0, {"u": 1.0, "v": 40.0}, False, None),
+}
 RTOLS = (1e-3, 3e-4, 1e-4, 3e-5, 1e-5, 3e-6, 1e-6, 3e-7, 1e-7, 3e-8, 1e-8)
 CONFIGS = ("S0", "sensitivity", "E0a", "E0b")
 NFE = {"S0": 12, "sensitivity": 12, "E0a": 4, "E0b": 5}
@@ -137,18 +144,9 @@ def error_summary(state, ref, name, n):
 
 def setup(name, n):
     """D0 problem definitions: FD DiffusionOperator and the paper IC recipes."""
-    if name == "P1":
-        length, final, ds = 1.0, 2.0, {"u": 0.01}
-    elif name == "P2":
-        length, final, ds = 1.0, 100.0, {"u": 2e-5, "v": 1e-5}
-    elif name == "P3":
-        length, final, ds = 5.0, 200.0, {"u": 0.01, "v": 0.1}
-    elif name == "P4":
-        length, final, ds = 5.0, 20.0, {"u": 0.01, "v": 0.02}
-    elif name == "P5":
-        length, final, ds = 1.0, 1.0, {"u": 1.0, "v": 40.0}
-    else:
+    if name not in PROBLEM_SETTINGS:
         raise ValueError(name)
+    _, length, final, ds, _, _ = PROBLEM_SETTINGS[name]
     grid = Grid2D.uniform(n, n, 0.0, length, 0.0, length)
     ops = {key: DiffusionOperator(grid, d, dtype=jnp.float64) for key, d in ds.items()}
     if name == "P1":
