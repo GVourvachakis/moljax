@@ -1,6 +1,6 @@
 """Regenerate the six D0b endpoint references used by the D3 benchmark.
 
-Run ``JAX_PLATFORMS=cpu JAX_ENABLE_X64=true PYTHONPATH=. .venv/bin/python benchmarks/d3_references.py``.
+Run ``JAX_PLATFORMS=cpu JAX_ENABLE_X64=true PYTHONPATH=. python benchmarks/d3_references.py``.
 Each accepted step of an ETDRK4 adaptive run with ``rtol = atol = 1e-8`` is
 split into 16 equal traced ETDRK4 substeps. The endpoint is host specific.
 """
@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from pathlib import Path
 
 import jax
@@ -34,7 +35,6 @@ D0B_EST_ERR = {
     "P5_64": 1.4326020483655173e-07,
     "P5_128": 2.986317503545861e-07,
 }
-D0B_JSON_SHA256 = "a31665b32fdd5d31ea44c30492f70e0d82a51a2b4efcc0a9fa1bf8ecdc9d9faf"
 # Relative confirmation levels from the D3 v3.2 reference audit, retained with
 # their provenance because the independent cross-check endpoints are not inputs.
 D3_CONFIRMATION = {
@@ -48,8 +48,8 @@ D3_CONFIRMATION = {
 }
 
 
-def generate_case(name: str, n: int) -> dict[str, np.ndarray]:
-    """Reproduce D0b's accepted-step sequence and its sixteen-way refinement."""
+def _accepted_steps(name: str, n: int):
+    """Return the D0b ETDRK4 trajectory's accepted step sizes."""
     state, ops, rhs, _, final = setup(name, n)
     max_steps = 1024
     while True:
@@ -78,7 +78,12 @@ def generate_case(name: str, n: int) -> dict[str, np.ndarray]:
     h = np.asarray(result.dt_history[1 : int(result.n_saved)], dtype=np.float64)
     if len(h) != int(result.n_accepted):
         raise RuntimeError(f"reference step history length differs: {name}/{n}")
-    substeps = jnp.asarray(np.repeat(h / 16, 16))
+    return state, ops, rhs, h
+
+
+def _refined_endpoint(source, m: int) -> dict[str, np.ndarray]:
+    state, ops, rhs, h = source
+    substeps = jnp.asarray(np.repeat(h / m, m))
 
     @jax.jit
     def integrate(step_array):
@@ -93,6 +98,32 @@ def generate_case(name: str, n: int) -> dict[str, np.ndarray]:
     return {key: np.asarray(value) for key, value in endpoint.items()}
 
 
+def estimate_error(name: str, n: int) -> tuple[float, dict[str, np.ndarray]]:
+    """D0b B1: three refinements, observed order, then d2/(2**p - 1)."""
+    source = _accepted_steps(name, n)
+    endpoints = {m: _refined_endpoint(source, m) for m in (4, 8, 16)}
+
+    def distance(a, b):
+        left = np.concatenate([endpoints[a][key].ravel() for key in sorted(endpoints[a])])
+        right = np.concatenate([endpoints[b][key].ravel() for key in sorted(endpoints[b])])
+        return float(np.max(np.abs(left - right)))
+
+    d1, d2 = distance(4, 8), distance(8, 16)
+    p_obs = math.log2(d1 / d2)
+    if not 2 <= p_obs <= 6:
+        raise RuntimeError(f"D0b B1 order outside [2, 6]: {name}/{n}: {p_obs}")
+    est_err = d2 / (2**p_obs - 1)
+    case = f"{name}_{n}"
+    if est_err != D0B_EST_ERR[case]:
+        raise RuntimeError(f"D0b B1 estimate differs: {case}: {est_err} != {D0B_EST_ERR[case]}")
+    return est_err, endpoints[16]
+
+
+def generate_case(name: str, n: int) -> dict[str, np.ndarray]:
+    """Reproduce D0b's accepted-step sequence and sixteen-way refinement."""
+    return _refined_endpoint(_accepted_steps(name, n), 16)
+
+
 def main() -> None:
     if jax.default_backend() != "cpu" or not jax.config.jax_enable_x64:
         raise RuntimeError("reference generation requires CPU and x64")
@@ -100,7 +131,7 @@ def main() -> None:
     manifest = {
         "recipe": "D0b ETDRK4 rtol=atol=1e-8 accepted steps; each divided into 16 traced ETDRK4 substeps",
         "host_specific": True,
-        "est_err_source_sha256": D0B_JSON_SHA256,
+        "est_err_recipe": "D0b B1: for each accepted ETDRK4 step at rtol=atol=1e-8, split it into 4, 8 and 16 traced substeps; d1=||ref4-ref8||_inf, d2=||ref8-ref16||_inf, p=log2(d1/d2), est_err=d2/(2**p-1); require 2<=p<=6; matches D0b B1 bitwise",
         "confirmation_source": "D3 v3.2 reference audit on experiment/etd-embedded-pairs",
         "confirmation": {
             case: {"epsilon_conf": value, "method": method}
@@ -111,9 +142,9 @@ def main() -> None:
     for name, n in CASES:
         if name == "P1":
             continue
-        endpoint = generate_case(name, n)
+        est_err, endpoint = estimate_error(name, n)
         case = f"{name}_{n}"
-        manifest["cases"][case] = {"est_err": D0B_EST_ERR[case], "arrays": {}}
+        manifest["cases"][case] = {"est_err": est_err, "arrays": {}}
         for key, value in endpoint.items():
             arrays[f"{case}_{key}"] = value
             manifest["cases"][case]["arrays"][key] = hashlib.sha256(value.tobytes()).hexdigest()
