@@ -1,0 +1,39 @@
+{
+  "study_commit": "f3a05c93a07a2cf3684660f94f410b989bd119e6",
+  "study_json_sha256": "cd6a166980c436df5d6abdf1cc4fd10a7e85914b04ba49b97a65d77a349e2910",
+  "study_d3b_json_sha256": "8e24c53106eb47dce9d6c08eb5c3b4df73c06df557d4d05f42c061701b0f6b42",
+  "d3": {
+    "fields_compared": [
+      "accepted",
+      "rejected",
+      "attempts",
+      "NFE",
+      "transforms",
+      "status",
+      "endpoint_sha256",
+      "error_inf_relative",
+      "error_inf_absolute",
+      "error_inf_relative_per_field",
+      "validity"
+    ],
+    "records_compared": 357,
+    "records_identical": 357
+  },
+  "d3b": {
+    "fields_compared": [
+      "steps",
+      "NFE",
+      "endpoint_sha256",
+      "error_inf_absolute",
+      "error_inf_relative",
+      "error_inf_per_field",
+      "error_inf_relative_per_field",
+      "status",
+      "validity"
+    ],
+    "measured_rows_compared": 135,
+    "measured_rows_identical": 135,
+    "all_rows_compared": 195,
+    "all_rows_identical": 195
+  }
+}

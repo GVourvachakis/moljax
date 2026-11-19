@@ -3741,18 +3741,21 @@
   },
   "protocol": "D3 v3 frozen; v3.1 descriptive additions; v3.2 cost clarification; D2-only port",
   "provenance": {
-    "analysis_script_sha256": "252d7cd8a3d3355b5fed31fe22cf06f33106305d36288f8694a43a5c93ed3b1d",
-    "backend": "cpu",
-    "git_commit": "e0c9353f60e2a541a186e4288eabbf97a75b610b",
-    "host_label": "laptop CPU (AMD Ryzen 7 5800H)",
-    "jax": "0.11.2",
-    "jaxlib": "0.11.2",
-    "numpy": "2.5.4",
-    "python": "3.12.3",
-    "recorded_utc": "2026-11-19T16:54:32.525962+00:00",
-    "scipy": "1.18.1",
-    "script_sha256": "ddeeac167c7e4885cd8d2d88555dbbbd3b9df1fcd2024b4f17a1b3d36d77dad5",
-    "x64": true
+    "analysis_script_sha256": "9d3fb756ff8ad890a640c07f80d74f20d032181280dd4db59d0494a688429f61",
+    "assembled_utc": "2026-11-19T23:28:07.591715+00:00",
+    "measurement": {
+      "backend": "cpu",
+      "git_commit": "e0c9353f60e2a541a186e4288eabbf97a75b610b",
+      "host_label": "laptop CPU (AMD Ryzen 7 5800H)",
+      "jax": "0.11.2",
+      "jaxlib": "0.11.2",
+      "numpy": "2.5.4",
+      "python": "3.12.3",
+      "recorded_utc": "2026-11-19T16:54:32.525962+00:00",
+      "scipy": "1.18.1",
+      "script_sha256": "ddeeac167c7e4885cd8d2d88555dbbbd3b9df1fcd2024b4f17a1b3d36d77dad5",
+      "x64": true
+    }
   },
   "raw_jsonl_sha256": "6c273ae5f6d8ecafa23f278166a2726299e9e3a24b44baf5a68e4a122e2bc131",
   "records": [

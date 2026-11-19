@@ -13,6 +13,7 @@ import subprocess
 import sys
 import time
 from collections import defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -543,8 +544,6 @@ def timed_summary(plan, rows, work_dir):
     }
 
 
-
-
 def _write_csv(rows, matched):
     result_dir = d3.ROOT / "benchmarks/results"
     record_columns = (
@@ -666,8 +665,68 @@ def complete_study(work_dir, strict=False):
     _write_csv(rows, matched)
     from benchmarks.make_d3_summaries import render
 
-    (d3.ROOT / "benchmarks/results/D3_SUMMARY.md").write_text(render(json.loads(output.read_text())))
+    (d3.ROOT / "benchmarks/results/D3_SUMMARY.md").write_text(
+        render(json.loads(output.read_text()))
+    )
     return payload
+
+
+def reassemble(work_dir):
+    """Recompute analysis from committed records and raw timing, without model runs."""
+    path = d3.ROOT / "benchmarks/results/d3_work_precision.json"
+    committed = json.loads(path.read_text())
+    raw = work_dir / "stage_a.jsonl"
+    if hashlib.sha256(raw.read_bytes()).hexdigest() != committed["raw_jsonl_sha256"]:
+        raise RuntimeError("stage_a.jsonl checksum differs from the committed study")
+    rows = read_rows(work_dir)
+    if rows != committed["records"]:
+        raise RuntimeError("stage_a.jsonl records differ from the committed study")
+    if not (work_dir / "timing.jsonl").is_file():
+        raise RuntimeError("timing.jsonl missing; reassembly stopped before committing")
+    confirmation = json.loads(d3.REF_MANIFEST.read_text())["confirmation"]
+    probes = [json.loads((work_dir / f"probe_{name}_{n}.json").read_text()) for name, n in d3.CASES]
+    controls = [
+        json.loads((work_dir / f"control_{name}_{n}_{rtol:.0e}.json").read_text())
+        for name, n in d3.CASES
+        if name != "P1"
+        for rtol in (1e-4, 1e-6)
+    ]
+    determinism_result = json.loads((work_dir / "determinism.json").read_text())
+    plan = timing_plan(rows)
+    calculated = {
+        "matched_targets": matched_tables(rows, confirmation),
+        "hypotheses": hypotheses(rows, confirmation),
+        "reference_confirmation": confirmation,
+        "estimator_power": probes,
+        "rhs_time_controls": controls,
+        "tolerance_proportionality": tolerance_proportionality(rows),
+        "determinism": determinism_result,
+        "timing": timed_summary(plan, rows, work_dir),
+        "timing_plan": plan,
+        "stage_a": status(rows),
+    }
+    for key, value in calculated.items():
+        if json.loads(json.dumps(value)) != committed[key]:
+            raise RuntimeError(f"recomputed analysis differs at /{key}")
+    original = committed["provenance"].get("measurement", committed["provenance"])
+    committed["provenance"] = {
+        "measurement": {
+            key: value for key, value in original.items() if key != "analysis_script_sha256"
+        },
+        "analysis_script_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        "assembled_utc": datetime.now(timezone.utc).isoformat(),
+    }
+    path.write_text(json.dumps(committed, indent=2, sort_keys=True, allow_nan=False) + "\n")
+    raw_timing = [json.loads(line) for line in (work_dir / "timing.jsonl").read_text().splitlines()]
+    with (d3.ROOT / "benchmarks/results/d3_timing_runs.csv").open("w", newline="") as stream:
+        writer = csv.DictWriter(
+            stream,
+            fieldnames=("id", "problem", "N", "block", "repetition", "seconds"),
+            lineterminator="\n",
+        )
+        writer.writeheader()
+        writer.writerows(raw_timing)
+    return committed
 
 
 def main():
@@ -686,9 +745,11 @@ def main():
             name,
             n,
         )
+    elif len(sys.argv) == 3 and sys.argv[1] == "reassemble":
+        reassemble(Path(sys.argv[2]))
     else:
         raise SystemExit(
-            "usage: d3_work_precision_analysis.py render | timing-case NAME N WORK_DIR"
+            "usage: d3_work_precision_analysis.py render | reassemble WORK_DIR | timing-case NAME N WORK_DIR"
         )
 
 
