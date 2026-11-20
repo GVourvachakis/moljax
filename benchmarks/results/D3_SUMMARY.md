@@ -27,7 +27,7 @@ Source: `d3_work_precision.json`, `/settings/NFE_per_attempt`; `benchmarks/d3_wo
 
 The error metric is max fieldwise relative infinity error (`/settings/error_metric`). The validity rule is error_inf >= 100*est_err -> valid; 10*est_err <= error_inf < 100*est_err -> valid, reference-limited; error_inf < 10*est_err -> indeterminate (`/validity_rule`): it compares absolute error with the reference's `est_err`. A record is usable only if it succeeded, is not indeterminate, has `NFE`, and has relative error in (0, 1e-2] (`benchmarks/d3_work_precision_analysis.py:usable`); only usable records enter the Pareto fronts. Q is S0 NFE divided by pair NFE at matched error; R uses F or F_g NFE as the numerator. Both use log–log interpolation on valid Pareto fronts without extrapolation.
 
-Lean NFE counts one reaction evaluation per step position: S0 uses `10*attempts + accepted`, E0a `3*attempts + 1`, and E0b `4*attempts + accepted` (`benchmarks/d3_work_precision.py:adaptive_cell`).
+Lean NFE counts an evaluation once when several attempts or sub-steps start from the same state: S0 uses `10*attempts + accepted`, E0a `3*attempts + 1`, and E0b `4*attempts + accepted` (`benchmarks/d3_work_precision.py:adaptive_cell`).
 This is a counting convention, not the driver's executed work: it evaluates every stage of every attempt, with 12 (`/settings/NFE_per_attempt/S0`) calls for S0, 4 (`d3b_fixed_pairs.json`, `/nfe_check/Z32/as_run_calls_per_step`) for E0a, and 5 (`d3b_fixed_pairs.json`, `/nfe_check/Z43/as_run_calls_per_step`) for E0b. S0's lean count shares the starting evaluation between its full and first half step and across retries from the same state. E0b's shares the starting evaluation across retries. E0a's `+1` also assumes reuse of its last-stage evaluation as the next step's first (FSAL); this branch does not implement that reuse.
 
 A target is confirmed when it is at least ten times its reference-confirmation level (`/reference_confirmation/*/epsilon_conf`). Confirmation labels come from the [reference audit on the study branch](https://github.com/GVourvachakis/moljax/tree/f3a05c93a07a2cf3684660f94f410b989bd119e6). H1 uses every attainable valid target regardless of confirmation (`benchmarks/d3_work_precision_analysis.py:hypotheses`).
@@ -408,9 +408,10 @@ Source: `d3_reproduction.json`, `/d3`; `d3_references.json`, `/host_specific`.
 
 The measurement-time and current runners have identical setup outputs for 7 cases (`/runner_refactor/all_identical`, `/runner_refactor/cases`).
 
-Regenerate the references, D3 run, D3b ladders, graded analysis, summaries, and reproduction record in this order:
+The study commits are absent from a clone of the upstream repository, so fetch the fork branches before retrieving them. Regenerate the references, D3 run, D3b ladders, graded analysis, summaries, and reproduction record in this order:
 
 ```sh
+git fetch https://github.com/GVourvachakis/moljax experiment/etd-embedded-pairs feature/etd-embedded-pairs
 JAX_PLATFORMS=cpu JAX_ENABLE_X64=true PYTHONPATH=. python benchmarks/d3_references.py
 JAX_PLATFORMS=cpu JAX_ENABLE_X64=true PYTHONPATH=. python benchmarks/d3_work_precision.py all --work-dir WORK_DIR
 JAX_PLATFORMS=cpu JAX_ENABLE_X64=true PYTHONPATH=. python benchmarks/d3b_fixed_pairs.py all

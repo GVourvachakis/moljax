@@ -127,7 +127,7 @@ def render(payload):
         "Q is S0 NFE divided by pair NFE at matched error; R uses F or F_g NFE as the numerator. "
         "Both use log–log interpolation on valid Pareto fronts without extrapolation.",
         "",
-        "Lean NFE counts one reaction evaluation per step position: "
+        "Lean NFE counts an evaluation once when several attempts or sub-steps start from the same state: "
         "S0 uses `10*attempts + accepted`, E0a `3*attempts + 1`, and E0b "
         "`4*attempts + accepted` (`benchmarks/d3_work_precision.py:adaptive_cell`).",
         f"This is a counting convention, not the driver's executed work: it evaluates every "
@@ -395,10 +395,12 @@ def render(payload):
         f"{len(reproduction['runner_refactor']['cases'])} cases "
         f"(`/runner_refactor/all_identical`, `/runner_refactor/cases`).",
         "",
-        "Regenerate the references, D3 run, D3b ladders, graded analysis, summaries, and "
-        "reproduction record in this order:",
+        "The study commits are absent from a clone of the upstream repository, so fetch "
+        "the fork branches before retrieving them. Regenerate the references, D3 run, "
+        "D3b ladders, graded analysis, summaries, and reproduction record in this order:",
         "",
         "```sh",
+        "git fetch https://github.com/GVourvachakis/moljax experiment/etd-embedded-pairs feature/etd-embedded-pairs",
         "JAX_PLATFORMS=cpu JAX_ENABLE_X64=true PYTHONPATH=. python benchmarks/d3_references.py",
         "JAX_PLATFORMS=cpu JAX_ENABLE_X64=true PYTHONPATH=. python benchmarks/d3_work_precision.py all --work-dir WORK_DIR",
         "JAX_PLATFORMS=cpu JAX_ENABLE_X64=true PYTHONPATH=. python benchmarks/d3b_fixed_pairs.py all",

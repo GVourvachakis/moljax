@@ -37,7 +37,8 @@
     "all_rows_identical": 195
   },
   "runner_refactor": {
-    "measured_commit": "e0c9353f60e2a541a186e4288eabbf97a75b610b",
+    "measurement_head_commit": "e0c9353f60e2a541a186e4288eabbf97a75b610b",
+    "runner_blob_commit": "deb96e7de9fc54d0e67549babfdb6392061dbeda",
     "measured_runner_sha256": "ddeeac167c7e4885cd8d2d88555dbbbd3b9df1fcd2024b4f17a1b3d36d77dad5",
     "current_runner_sha256": "8ed3f60974a2e3dddbbb3f97b8b4b7db50510a3e86a41f4ca8ef3c1ad63128d7",
     "cases": [

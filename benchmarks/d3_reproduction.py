@@ -1,5 +1,7 @@
 """Compare committed D3/D3b rows with the original study, without solving.
 
+From an upstream clone, first run
+``git fetch https://github.com/GVourvachakis/moljax experiment/etd-embedded-pairs feature/etd-embedded-pairs``.
 Get inputs with ``git show f3a05c9:benchmarks/results/d3_work_precision.json > study.json``
 and ``git show f3a05c9:benchmarks/results/d3b_fixed_pairs.json > study_d3b.json``.
 For the runner-refactor check, also get
@@ -16,6 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 RESULTS = ROOT / "benchmarks/results"
 STUDY_COMMIT = "f3a05c93a07a2cf3684660f94f410b989bd119e6"
+RUNNER_BLOB_COMMIT = "deb96e7de9fc54d0e67549babfdb6392061dbeda"
 D3_FIELDS = (
     "accepted",
     "rejected",
@@ -109,7 +112,8 @@ def runner_refactor(measured_path, measurement):
             fingerprints["operator_sha256"][field] = digest
         cases.append({"case": f"{name}/{n}", "final_time": final_new, **fingerprints})
     return {
-        "measured_commit": measurement["git_commit"],
+        "measurement_head_commit": measurement["git_commit"],
+        "runner_blob_commit": RUNNER_BLOB_COMMIT,
         "measured_runner_sha256": measured_hash,
         "current_runner_sha256": hashlib.sha256(Path(current.__file__).read_bytes()).hexdigest(),
         "cases": cases,
