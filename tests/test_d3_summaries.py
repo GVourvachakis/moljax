@@ -1,5 +1,6 @@
 """Checks for the committed D3 and D3b Markdown renderers."""
 
+import hashlib
 import json
 import os
 import re
@@ -61,12 +62,33 @@ def test_rendered_summaries_are_committed_and_idempotent():
 
 def test_every_pointer_resolves_and_table_sources_are_separate():
     inputs = [json.loads((RESULTS / name).read_text()) for name in INPUTS]
+    top_level_keys = set().union(*(data.keys() for data in inputs))
     for name in DOCUMENTS:
         lines = (RESULTS / name).read_text().splitlines()
         for line, following in zip(lines, lines[1:], strict=False):
             if line.startswith("|") and line.endswith("|"):
                 assert not following or following.startswith("|"), (name, line, following)
-        pointers = re.findall(r"`(/[^`]+)`", "\n".join(lines))
+        tokens = re.findall(r"`([^`]+)`", "\n".join(lines))
+        for token in tokens:
+            if "/" in token and any(
+                token.lstrip("/").startswith(f"{key}/") for key in top_level_keys
+            ):
+                assert token.startswith("/"), (name, token)
+        pointers = [token for token in tokens if token.startswith("/")]
         assert pointers
         for pointer in pointers:
             assert any(_matches(data, pointer) for data in inputs), (name, pointer)
+
+
+def test_runner_refactor_record_names_the_committed_runners():
+    d3 = json.loads((RESULTS / "d3_work_precision.json").read_text())
+    record = json.loads((RESULTS / "d3_reproduction.json").read_text())["runner_refactor"]
+    assert record["measured_runner_sha256"] == d3["provenance"]["measurement"]["script_sha256"]
+    assert (
+        record["current_runner_sha256"]
+        == hashlib.sha256((ROOT / "benchmarks/d3_work_precision.py").read_bytes()).hexdigest()
+    )
+    assert record["all_identical"]
+    assert {row["case"].replace("/", "_") for row in record["cases"]} == set(
+        d3["reference_confirmation"]
+    )

@@ -6,11 +6,11 @@ The H1 threshold and matched accuracy targets were fixed before comparison. The 
 
 | Problem | Model | Fields | Domain length | Final time | Diffusivities | Grids | RHS reads time | Regime |
 | --- | --- | --- | ---: | ---: | --- | --- | --- | --- |
-| P1 | manufactured | u | 1 | 2 | u=0.01 | 64 | True | — |
-| P2 | Gray–Scott | u, v | 1 | 100 | u=2e-05, v=1e-05 | 128, 256 | False | — |
-| P3 | Turing Brusselator | u, v | 5 | 200 | u=0.01, v=0.1 | 64 | False | TURING_REGIME |
-| P4 | Hopf Brusselator | u, v | 5 | 20 | u=0.01, v=0.02 | 64 | False | HOPF_REGIME |
-| P5 | Schnakenberg | u, v | 1 | 1 | u=1, v=40 | 64, 128 | False | — |
+| P1 | manufactured | u | 1 | 2 | u=0.01 | 64² | True | — |
+| P2 | Gray–Scott | u, v | 1 | 100 | u=2e-05, v=1e-05 | 128², 256² | False | — |
+| P3 | Turing Brusselator | u, v | 5 | 200 | u=0.01, v=0.1 | 64² | False | TURING_REGIME |
+| P4 | Hopf Brusselator | u, v | 5 | 20 | u=0.01, v=0.02 | 64² | False | HOPF_REGIME |
+| P5 | Schnakenberg | u, v | 1 | 1 | u=1, v=40 | 64², 128² | False | — |
 
 Source: `benchmarks/d3_work_precision.py`, `PROBLEM_SETTINGS`, `CASES`, `setup()`; periodic FD `DiffusionOperator` on every case.
 
@@ -25,9 +25,12 @@ Source: `benchmarks/d3_work_precision.py`, `PROBLEM_SETTINGS`, `CASES`, `setup()
 
 Source: `d3_work_precision.json`, `/settings/NFE_per_attempt`; `benchmarks/d3_work_precision.py`, `fixed_cell`.
 
-The error metric is max fieldwise relative infinity error (`/settings/error_metric`). The validity rule is error_inf >= 100*est_err -> valid; 10*est_err <= error_inf < 100*est_err -> valid, reference-limited; error_inf < 10*est_err -> indeterminate (`/validity_rule`): it compares absolute error with the reference's `est_err` and selects records for the Pareto fronts. Q is S0 NFE divided by pair NFE at matched error; R uses F or F_g NFE as the numerator. Both use log–log interpolation on valid Pareto fronts without extrapolation. Lean NFE counts one reaction evaluation per step position: S0 uses `10*attempts + accepted`, E0a `3*attempts + 1`, and E0b `4*attempts + accepted` (`benchmarks/d3_work_precision.py:adaptive_cell`).
+The error metric is max fieldwise relative infinity error (`/settings/error_metric`). The validity rule is error_inf >= 100*est_err -> valid; 10*est_err <= error_inf < 100*est_err -> valid, reference-limited; error_inf < 10*est_err -> indeterminate (`/validity_rule`): it compares absolute error with the reference's `est_err`. A record is usable only if it succeeded, is not indeterminate, has `NFE`, and has relative error in (0, 1e-2] (`benchmarks/d3_work_precision_analysis.py:usable`); only usable records enter the Pareto fronts. Q is S0 NFE divided by pair NFE at matched error; R uses F or F_g NFE as the numerator. Both use log–log interpolation on valid Pareto fronts without extrapolation.
 
-A target is confirmed when it is at least ten times its reference-confirmation level (`reference_confirmation/*/epsilon_conf`). Confirmation labels come from the [reference audit on the study branch](https://github.com/GVourvachakis/moljax/tree/f3a05c93a07a2cf3684660f94f410b989bd119e6). H1 uses every attainable valid target regardless of confirmation (`benchmarks/d3_work_precision_analysis.py:hypotheses`).
+Lean NFE counts one reaction evaluation per step position: S0 uses `10*attempts + accepted`, E0a `3*attempts + 1`, and E0b `4*attempts + accepted` (`benchmarks/d3_work_precision.py:adaptive_cell`).
+This is a counting convention, not the driver's executed work: it evaluates every stage of every attempt, with 12 (`/settings/NFE_per_attempt/S0`) calls for S0, 4 (`d3b_fixed_pairs.json`, `/nfe_check/Z32/as_run_calls_per_step`) for E0a, and 5 (`d3b_fixed_pairs.json`, `/nfe_check/Z43/as_run_calls_per_step`) for E0b. S0's lean count shares the starting evaluation between its full and first half step and across retries from the same state. E0b's shares the starting evaluation across retries. E0a's `+1` also assumes reuse of its last-stage evaluation as the next step's first (FSAL); this branch does not implement that reuse.
+
+A target is confirmed when it is at least ten times its reference-confirmation level (`/reference_confirmation/*/epsilon_conf`). Confirmation labels come from the [reference audit on the study branch](https://github.com/GVourvachakis/moljax/tree/f3a05c93a07a2cf3684660f94f410b989bd119e6). H1 uses every attainable valid target regardless of confirmation (`benchmarks/d3_work_precision_analysis.py:hypotheses`).
 
 H1 requires Q ≥ 1.15 (`/settings/H1_thresholds/support_Q`) on at least 3 (`/settings/H1_thresholds/minimum_problem_count`) eligible problems, with no problem below 0.9 (`/settings/H1_thresholds/loss_Q`).
 
@@ -45,35 +48,36 @@ Frozen targets: 1e-3, 1e-4, 1e-5, 1e-6 (`/settings/targets`).
 
 Source: `d3_work_precision.json`, `/settings`, `/reference_confirmation`, `/validity_rule`.
 
-All 357 records were assembled (`/records`); every adaptive run succeeded. The 15 unsuccessful records are coarse fixed-step rungs that became non-finite (`/stage_a/failures`). Exclusions by case and configuration:
+All 357 records were assembled (`/records`); every adaptive run succeeded. The 15 unsuccessful records are coarse fixed-step F rungs that became non-finite (`/stage_a/failures`). Separately, records excluded from the Pareto fronts for indeterminate reference error or relative error above the ceiling are split by case and configuration:
 
-| Case / configuration | Excluded records |
-| --- | ---: |
-| P2/128/F | 2 |
-| P2/128/sensitivity | 2 |
-| P2/256/F | 2 |
-| P2/256/sensitivity | 3 |
-| P3/64/E0a | 5 |
-| P3/64/E0b | 4 |
-| P3/64/F | 1 |
-| P3/64/S0 | 6 |
-| P3/64/sensitivity | 6 |
-| P4/64/E0a | 4 |
-| P4/64/E0b | 3 |
-| P4/64/S0 | 3 |
-| P4/64/sensitivity | 4 |
-| P5/64/E0a | 1 |
-| P5/64/F | 1 |
-| P5/64/F_g | 1 |
-| P5/64/sensitivity | 1 |
-| P5/128/E0a | 2 |
-| P5/128/E0b | 2 |
-| P5/128/F | 2 |
-| P5/128/F_g | 1 |
-| P5/128/S0 | 1 |
-| P5/128/sensitivity | 1 |
+| Case / configuration | Indeterminate | Error > 1e-2 |
+| --- | ---: | ---: |
+| P2/128/F | 0 | 2 |
+| P2/128/sensitivity | 0 | 2 |
+| P2/256/F | 0 | 2 |
+| P2/256/sensitivity | 0 | 3 |
+| P3/64/E0a | 1 | 4 |
+| P3/64/E0b | 0 | 4 |
+| P3/64/F | 0 | 1 |
+| P3/64/S0 | 0 | 6 |
+| P3/64/sensitivity | 0 | 6 |
+| P4/64/E0a | 0 | 4 |
+| P4/64/E0b | 0 | 3 |
+| P4/64/S0 | 0 | 3 |
+| P4/64/sensitivity | 0 | 4 |
+| P5/64/E0a | 1 | 0 |
+| P5/64/F | 0 | 1 |
+| P5/64/F_g | 1 | 0 |
+| P5/64/sensitivity | 0 | 1 |
+| P5/128/E0a | 2 | 0 |
+| P5/128/E0b | 2 | 0 |
+| P5/128/F | 0 | 2 |
+| P5/128/F_g | 1 | 0 |
+| P5/128/S0 | 0 | 1 |
+| P5/128/sensitivity | 0 | 1 |
+| Total | 8 | 50 |
 
-Source: `d3_work_precision.json`, `/stage_a/excluded_counts`.
+Source: `d3_work_precision.json`, `/records/*/validity`, `/records/*/error_inf_relative`, `/stage_a/excluded_counts`; split computed as in `benchmarks/d3_work_precision_analysis.py:status`.
 
 ## H1: embedded pairs against step doubling
 
@@ -93,7 +97,7 @@ Source: `d3_work_precision.json`, `/hypotheses/H1/*/by_problem/*/median_Q`.
 
 E0a: 2 (`/hypotheses/H1/E0a/positive_problem_count`) of 5 (`/hypotheses/H1/E0a/eligible_problem_count`) eligible problems meet the positive threshold; any below the loss threshold: True (`/hypotheses/H1/E0a/any_problem_below_0p90`); supported: False (`/hypotheses/H1/E0a/supported`).
 E0b: 4 (`/hypotheses/H1/E0b/positive_problem_count`) of 4 (`/hypotheses/H1/E0b/eligible_problem_count`) eligible problems meet the positive threshold; any below the loss threshold: False (`/hypotheses/H1/E0b/any_problem_below_0p90`); supported: True (`/hypotheses/H1/E0b/supported`).
-ERK43ZB has no P1 row because its time-dependent RHS is incompatible with the pair's one-sixth stage under the tick-clock rounding guarantee.
+P1's RHS reads `t` (`benchmarks/d3_work_precision.py:PROBLEM_SETTINGS`). ERK43ZB requires `rhs_uses_time=False` because its 1/6 stage is off the tick lattice; therefore P1 is not eligible for ERK43ZB.
 
 The primary Q uses nominal NFE. Lean NFE and CPU-time ratios are reported as secondary checks.
 
@@ -401,6 +405,24 @@ Within-session intervals do not cover between-session differences on this laptop
 The 357 (`/d3/records_identical`) of 357 (`/d3/records_compared`) records reproduce the [study](https://github.com/GVourvachakis/moljax/tree/f3a05c93a07a2cf3684660f94f410b989bd119e6) bitwise on the same laptop CPU and JAX 0.11.2. Other hosts can differ at rounding level, because the references are host specific.
 
 Source: `d3_reproduction.json`, `/d3`; `d3_references.json`, `/host_specific`.
+
+The measurement-time and current runners have identical setup outputs for 7 cases (`/runner_refactor/all_identical`, `/runner_refactor/cases`).
+
+Regenerate the references, D3 run, D3b ladders, graded analysis, summaries, and reproduction record in this order:
+
+```sh
+JAX_PLATFORMS=cpu JAX_ENABLE_X64=true PYTHONPATH=. python benchmarks/d3_references.py
+JAX_PLATFORMS=cpu JAX_ENABLE_X64=true PYTHONPATH=. python benchmarks/d3_work_precision.py all --work-dir WORK_DIR
+JAX_PLATFORMS=cpu JAX_ENABLE_X64=true PYTHONPATH=. python benchmarks/d3b_fixed_pairs.py all
+JAX_PLATFORMS=cpu JAX_ENABLE_X64=true PYTHONPATH=. python benchmarks/d3b_graded_decomposition.py
+PYTHONPATH=. python benchmarks/make_d3_summaries.py
+git show f3a05c9:benchmarks/results/d3_work_precision.json > study.json
+git show f3a05c9:benchmarks/results/d3b_fixed_pairs.json > study_d3b.json
+git show deb96e7:benchmarks/d3_work_precision.py > runner_measured.py
+JAX_PLATFORMS=cpu JAX_ENABLE_X64=true PYTHONPATH=. python benchmarks/d3_reproduction.py study.json study_d3b.json runner_measured.py
+```
+
+Source: `benchmarks/d3_references.py`, `benchmarks/d3_work_precision.py`, `benchmarks/d3b_fixed_pairs.py`, `benchmarks/d3b_graded_decomposition.py`, `benchmarks/make_d3_summaries.py`, `benchmarks/d3_reproduction.py` (run docstrings).
 
 ## Limits
 

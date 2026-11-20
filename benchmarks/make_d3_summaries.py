@@ -1,4 +1,9 @@
-"""Render D3 and D3b Markdown from committed result files only."""
+"""Render D3 and D3b Markdown from committed result files only.
+
+Run ``PYTHONPATH=. python benchmarks/make_d3_summaries.py``.
+To reassemble the D3 JSON from retained raw timing first, run
+``PYTHONPATH=. python benchmarks/d3_work_precision_analysis.py reassemble WORK_DIR``.
+"""
 
 from __future__ import annotations
 
@@ -47,6 +52,28 @@ def render(payload):
         raise RuntimeError("reference confirmation differs from the committed manifest")
     study_timing = json.loads((RESULTS / "d3_timing_study_session.json").read_text())["timing"]
     reproduction = json.loads((RESULTS / "d3_reproduction.json").read_text())
+    pair_calls = json.loads((RESULTS / "d3b_fixed_pairs.json").read_text())["nfe_check"]
+    if (pair_calls["Z32"]["as_run_calls_per_step"], pair_calls["Z43"]["as_run_calls_per_step"]) != (
+        payload["settings"]["NFE_per_attempt"]["E0a"],
+        payload["settings"]["NFE_per_attempt"]["E0b"],
+    ):
+        raise RuntimeError("pair NFE counts differ from the D3 settings")
+    exclusions = {}
+    for row in payload["records"]:
+        indeterminate = row.get("validity") == "indeterminate"
+        relative = row.get("error_inf_relative")
+        above_ceiling = relative is not None and relative > 1e-2
+        if indeterminate or above_ceiling:
+            key = f"{row['problem']}/{row['N']}/{row['config']}"
+            counts = exclusions.setdefault(key, [0, 0])
+            counts[0] += indeterminate
+            counts[1] += above_ceiling
+    if {key: sum(counts) for key, counts in exclusions.items()} != payload["stage_a"][
+        "excluded_counts"
+    ]:
+        raise RuntimeError("exclusion split differs from the recorded totals")
+    if not d3.PROBLEM_SETTINGS["P1"][4]:
+        raise RuntimeError("P1's time-dependent RHS assumption changed")
     lines = [
         "# D3: adaptive exponential work precision",
         "",
@@ -62,7 +89,7 @@ def render(payload):
     for name, title, length, final, diffusivities, reads_time, regime in (
         (name, *settings) for name, settings in d3.PROBLEM_SETTINGS.items()
     ):
-        grids = ", ".join(str(n) for case, n in d3.CASES if case == name)
+        grids = ", ".join(f"{n}²" for case, n in d3.CASES if case == name)
         diffusion = ", ".join(f"{field}={value:g}" for field, value in diffusivities.items())
         lines.append(
             f"| {name} | {title} | {', '.join(diffusivities)} | {length:g} | {final:g} | "
@@ -94,15 +121,28 @@ def render(payload):
         "",
         f"The error metric is {payload['settings']['error_metric']} (`/settings/error_metric`). "
         f"The validity rule is {payload['validity_rule']} (`/validity_rule`): it compares absolute "
-        "error with the reference's `est_err` and selects records for the Pareto fronts. "
+        "error with the reference's `est_err`. A record is usable only if it succeeded, "
+        "is not indeterminate, has `NFE`, and has relative error in (0, 1e-2] "
+        "(`benchmarks/d3_work_precision_analysis.py:usable`); only usable records enter the Pareto fronts. "
         "Q is S0 NFE divided by pair NFE at matched error; R uses F or F_g NFE as the numerator. "
-        "Both use log–log interpolation on valid Pareto fronts without extrapolation. "
+        "Both use log–log interpolation on valid Pareto fronts without extrapolation.",
+        "",
         "Lean NFE counts one reaction evaluation per step position: "
         "S0 uses `10*attempts + accepted`, E0a `3*attempts + 1`, and E0b "
         "`4*attempts + accepted` (`benchmarks/d3_work_precision.py:adaptive_cell`).",
+        f"This is a counting convention, not the driver's executed work: it evaluates every "
+        f"stage of every attempt, with {_fmt(payload['settings']['NFE_per_attempt']['S0'], '/settings/NFE_per_attempt/S0')} "
+        f"calls for S0, {pair_calls['Z32']['as_run_calls_per_step']} "
+        f"(`d3b_fixed_pairs.json`, `/nfe_check/Z32/as_run_calls_per_step`) for E0a, and "
+        f"{pair_calls['Z43']['as_run_calls_per_step']} "
+        f"(`d3b_fixed_pairs.json`, `/nfe_check/Z43/as_run_calls_per_step`) for E0b. "
+        "S0's lean count shares the starting evaluation between its full and first half step "
+        "and across retries from the same state. E0b's shares the starting evaluation across "
+        "retries. E0a's `+1` also assumes reuse of its last-stage evaluation as the next "
+        "step's first (FSAL); this branch does not implement that reuse.",
         "",
         "A target is confirmed when it is at least ten times its reference-confirmation level "
-        "(`reference_confirmation/*/epsilon_conf`). Confirmation labels come from the "
+        "(`/reference_confirmation/*/epsilon_conf`). Confirmation labels come from the "
         "[reference audit on the study branch](https://github.com/GVourvachakis/moljax/tree/"
         "f3a05c93a07a2cf3684660f94f410b989bd119e6). H1 uses every attainable valid target "
         "regardless of confirmation (`benchmarks/d3_work_precision_analysis.py:hypotheses`).",
@@ -129,18 +169,25 @@ def render(payload):
         "",
         f"All {len(payload['records'])} records were assembled (`/records`); every adaptive run succeeded. "
         f"The {len(payload['stage_a']['failures'])} unsuccessful records are coarse fixed-step "
-        "rungs that became non-finite (`/stage_a/failures`). Exclusions by case and configuration:",
+        "F rungs that became non-finite (`/stage_a/failures`). Separately, records excluded "
+        "from the Pareto fronts for indeterminate reference error or relative error above "
+        "the ceiling are split by case and configuration:",
         "",
-        "| Case / configuration | Excluded records |",
-        "| --- | ---: |",
+        "| Case / configuration | Indeterminate | Error > 1e-2 |",
+        "| --- | ---: | ---: |",
     ]
-    for key, count in sorted(
-        payload["stage_a"]["excluded_counts"].items(), key=lambda item: _case_order(item[0])
+    for key, (indeterminate, above_ceiling) in sorted(
+        exclusions.items(), key=lambda item: _case_order(item[0])
     ):
-        lines.append(f"| {key} | {count} |")
+        lines.append(f"| {key} | {indeterminate} | {above_ceiling} |")
+    total_indeterminate = sum(counts[0] for counts in exclusions.values())
+    total_above_ceiling = sum(counts[1] for counts in exclusions.values())
+    lines.append(f"| Total | {total_indeterminate} | {total_above_ceiling} |")
     lines += [
         "",
-        "Source: `d3_work_precision.json`, `/stage_a/excluded_counts`.",
+        "Source: `d3_work_precision.json`, `/records/*/validity`, "
+        "`/records/*/error_inf_relative`, `/stage_a/excluded_counts`; "
+        "split computed as in `benchmarks/d3_work_precision_analysis.py:status`.",
         "",
         "## H1: embedded pairs against step doubling",
         "",
@@ -171,8 +218,9 @@ def render(payload):
             f"supported: {result['supported']} (`{base}/supported`)."
         )
     lines += [
-        "ERK43ZB has no P1 row because its time-dependent RHS is incompatible with the pair's "
-        "one-sixth stage under the tick-clock rounding guarantee.",
+        "P1's RHS reads `t` (`benchmarks/d3_work_precision.py:PROBLEM_SETTINGS`). "
+        "ERK43ZB requires `rhs_uses_time=False` because its 1/6 stage is off the tick "
+        "lattice; therefore P1 is not eligible for ERK43ZB.",
         "",
         "The primary Q uses nominal NFE. Lean NFE and CPU-time ratios are reported as secondary checks.",
         "",
@@ -342,6 +390,29 @@ def render(payload):
         "because the references are host specific.",
         "",
         "Source: `d3_reproduction.json`, `/d3`; `d3_references.json`, `/host_specific`.",
+        "",
+        f"The measurement-time and current runners have identical setup outputs for "
+        f"{len(reproduction['runner_refactor']['cases'])} cases "
+        f"(`/runner_refactor/all_identical`, `/runner_refactor/cases`).",
+        "",
+        "Regenerate the references, D3 run, D3b ladders, graded analysis, summaries, and "
+        "reproduction record in this order:",
+        "",
+        "```sh",
+        "JAX_PLATFORMS=cpu JAX_ENABLE_X64=true PYTHONPATH=. python benchmarks/d3_references.py",
+        "JAX_PLATFORMS=cpu JAX_ENABLE_X64=true PYTHONPATH=. python benchmarks/d3_work_precision.py all --work-dir WORK_DIR",
+        "JAX_PLATFORMS=cpu JAX_ENABLE_X64=true PYTHONPATH=. python benchmarks/d3b_fixed_pairs.py all",
+        "JAX_PLATFORMS=cpu JAX_ENABLE_X64=true PYTHONPATH=. python benchmarks/d3b_graded_decomposition.py",
+        "PYTHONPATH=. python benchmarks/make_d3_summaries.py",
+        "git show f3a05c9:benchmarks/results/d3_work_precision.json > study.json",
+        "git show f3a05c9:benchmarks/results/d3b_fixed_pairs.json > study_d3b.json",
+        "git show deb96e7:benchmarks/d3_work_precision.py > runner_measured.py",
+        "JAX_PLATFORMS=cpu JAX_ENABLE_X64=true PYTHONPATH=. python benchmarks/d3_reproduction.py study.json study_d3b.json runner_measured.py",
+        "```",
+        "",
+        "Source: `benchmarks/d3_references.py`, `benchmarks/d3_work_precision.py`, "
+        "`benchmarks/d3b_fixed_pairs.py`, `benchmarks/d3b_graded_decomposition.py`, "
+        "`benchmarks/make_d3_summaries.py`, `benchmarks/d3_reproduction.py` (run docstrings).",
         "",
         "## Limits",
         "",
